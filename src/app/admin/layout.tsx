@@ -35,6 +35,7 @@ const NAV = [
     title: "审核与版权",
     items: [
       { label: "待审核", href: "/admin/audit/pending" },
+      { label: "加入申请", href: "/admin/audit/join-applications" },
       { label: "举报处理", href: "/admin/audit/reports" },
       { label: "版权库", href: "/admin/audit/rights" },
     ],
@@ -53,6 +54,7 @@ const NAV = [
     title: "用户与权限",
     items: [
       { label: "用户列表", href: "/admin/users" },
+      { label: "兑换码", href: "/admin/redeem-codes" },
       { label: "角色权限", href: "/admin/roles" },
     ],
   },

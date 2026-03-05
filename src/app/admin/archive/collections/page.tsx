@@ -88,6 +88,7 @@ export default function Page() {
   const [selectedChildId, setSelectedChildId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured">("all");
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -310,7 +311,8 @@ export default function Page() {
     pageValue = page,
     sizeValue = pageSize,
     topValue = selectedTopId,
-    childValue = selectedChildId
+    childValue = selectedChildId,
+    featuredValue = featuredFilter
   ) => {
     setLoading(true);
     setError(null);
@@ -330,6 +332,9 @@ export default function Page() {
         } else {
           query.set("category_id", String(topValue));
         }
+      }
+      if (featuredValue === "featured") {
+        query.set("is_featured", "1");
       }
       const res = await fetchWithAuth(`${API_BASE}/api/collections?${query.toString()}`);
       if (!res.ok) throw new Error(await res.text());
@@ -396,9 +401,9 @@ export default function Page() {
 
   // 仅根据筛选条件和分页变化拉取列表
   useEffect(() => {
-    loadCollections(page, pageSize, selectedTopId, selectedChildId);
+    loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, selectedTopId, selectedChildId, childCategoryMap]);
+  }, [page, pageSize, selectedTopId, selectedChildId, featuredFilter, childCategoryMap]);
 
   const handlePrev = () => setPage((p) => Math.max(1, p - 1));
   const handleNext = () => setPage((p) => Math.min(totalPages, p + 1));
@@ -468,11 +473,14 @@ export default function Page() {
         }
       );
       if (!res.ok) throw new Error(await res.text());
-      await loadCollections(page, pageSize, selectedTopId, selectedChildId);
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter);
       setCollectionEditOpen(false);
       setCollectionEditing(null);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "更新失败";
+      if (message.includes("已有四个推荐")) {
+        window.alert("已有四个推荐，请先取消一个推荐后再保存");
+      }
       setError(message);
     } finally {
       setCollectionSaving(false);
@@ -506,7 +514,7 @@ export default function Page() {
       if (nextPage !== page) {
         setPage(nextPage);
       }
-      await loadCollections(nextPage, pageSize, selectedTopId, selectedChildId);
+      await loadCollections(nextPage, pageSize, selectedTopId, selectedChildId, featuredFilter);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "删除失败";
       setError(message);
@@ -591,7 +599,9 @@ export default function Page() {
         actions={
           <button
             className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:border-slate-300"
-            onClick={() => loadCollections(page, pageSize, selectedTopId, selectedChildId)}
+            onClick={() =>
+              loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter)
+            }
             disabled={loading}
           >
             {loading ? "加载中..." : "刷新"}
@@ -667,6 +677,20 @@ export default function Page() {
           <div className="text-sm font-semibold text-slate-700">
             合集列表
             <span className="ml-2 text-xs text-slate-400">共 {total} 条</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>推荐</span>
+            <select
+              className="rounded-xl border border-slate-100 bg-white px-3 py-1 text-xs text-slate-600"
+              value={featuredFilter}
+              onChange={(e) => {
+                setPage(1);
+                setFeaturedFilter(e.target.value as "all" | "featured");
+              }}
+            >
+              <option value="all">全部</option>
+              <option value="featured">仅推荐</option>
+            </select>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span>每页</span>
