@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import {
   API_BASE,
   ensureValidSession,
@@ -36,6 +37,7 @@ type TagGroup = {
 };
 
 type TagGroupKey = "ungrouped" | number;
+type ImportZipItemStatus = "pending" | "uploading" | "success" | "failed";
 
 type ImportZipResponse = {
   collection_id: number;
@@ -173,6 +175,10 @@ function collectHistoryLines(task: UploadTaskHistoryItem) {
   return lines;
 }
 
+function getUploadFileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
 export default function Page() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -193,7 +199,10 @@ export default function Page() {
   const [selectedTopId, setSelectedTopId] = useState<number | null>(null);
   const [selectedChildId, setSelectedChildId] = useState<number | null>(null);
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [importZipStatuses, setImportZipStatuses] = useState<
+    Record<string, ImportZipItemStatus>
+  >({});
   const [tagKeyword, setTagKeyword] = useState("");
   const [selectedTagGroupKey, setSelectedTagGroupKey] = useState<TagGroupKey>("ungrouped");
 
@@ -469,7 +478,7 @@ export default function Page() {
         ],
       });
       await loadBaseData();
-      return true;
+      return data;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "上传失败";
       setError(message);
@@ -479,7 +488,7 @@ export default function Page() {
         finished_at: new Date().toISOString(),
         error: message,
       });
-      return false;
+      return null;
     } finally {
       setUploading(false);
       setUploadStage("idle");
@@ -565,7 +574,7 @@ export default function Page() {
         ],
       });
       await loadBaseData();
-      return true;
+      return data;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "上传失败";
       setError(message);
@@ -575,7 +584,7 @@ export default function Page() {
         finished_at: new Date().toISOString(),
         error: message,
       });
-      return false;
+      return null;
     } finally {
       setAppendUploading(false);
       setAppendStage("idle");
@@ -591,31 +600,69 @@ export default function Page() {
       setError("请选择二级分类");
       return;
     }
-    if (!file) {
-      setError("请选择 ZIP 文件");
+    if (!files.length) {
+      setError("请选择 ZIP 文件（可多选）");
       return;
     }
-    if (!file.name.toLowerCase().endsWith(".zip")) {
-      setError("只支持 ZIP 文件");
+    const invalid = files.find((item) => !item.name.toLowerCase().endsWith(".zip"));
+    if (invalid) {
+      setError(`只支持 ZIP 文件：${invalid.name}`);
       return;
     }
 
     setError(null);
     setResult(null);
-    const ok = await runImportTask({
+    setAppendResult(null);
+
+    const [firstFile, ...restFiles] = files;
+    if (!firstFile) {
+      setError("请选择 ZIP 文件");
+      return;
+    }
+
+    const allFiles = [firstFile, ...restFiles];
+    const initialStatuses: Record<string, ImportZipItemStatus> = {};
+    allFiles.forEach((item) => {
+      initialStatuses[getUploadFileKey(item)] = "pending";
+    });
+    setImportZipStatuses(initialStatuses);
+
+    const firstKey = getUploadFileKey(firstFile);
+    setImportZipStatuses((prev) => ({ ...prev, [firstKey]: "uploading" }));
+    const imported = await runImportTask({
       title: title.trim(),
       description: description.trim(),
       category_id: selectedChildId,
       tag_ids: [...selectedTags],
-      file,
+      file: firstFile,
     });
-    if (ok) {
-      setTitle("");
-      setDescription("");
-      setSelectedTags([]);
-      setFile(null);
-      setTagKeyword("");
+    if (!imported) {
+      setImportZipStatuses((prev) => ({ ...prev, [firstKey]: "failed" }));
+      return;
     }
+    setImportZipStatuses((prev) => ({ ...prev, [firstKey]: "success" }));
+
+    for (const nextFile of restFiles) {
+      const nextKey = getUploadFileKey(nextFile);
+      setImportZipStatuses((prev) => ({ ...prev, [nextKey]: "uploading" }));
+      // 顺序追加，避免并发上传造成服务器解压压力
+      const appended = await runAppendTask({
+        collection_id: imported.collection_id,
+        set_cover: false,
+        file: nextFile,
+      });
+      if (!appended) {
+        setImportZipStatuses((prev) => ({ ...prev, [nextKey]: "failed" }));
+        setError(`分包追加失败：${nextFile.name}（已停止后续上传）`);
+        return;
+      }
+      setImportZipStatuses((prev) => ({ ...prev, [nextKey]: "success" }));
+    }
+
+    setTitle("");
+    setDescription("");
+    setSelectedTags([]);
+    setTagKeyword("");
   };
 
   const handleAppendZip = async () => {
@@ -677,180 +724,6 @@ export default function Page() {
           {error}
         </div>
       )}
-
-      <div className="rounded-3xl border border-slate-100 bg-white p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-slate-700">上传任务中心</div>
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            <span className="rounded-full bg-slate-100 px-2 py-1">总计 {taskStats.total}</span>
-            <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">
-              运行中 {taskStats.running}
-            </span>
-            <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">
-              成功 {taskStats.success}
-            </span>
-            <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">
-              失败 {taskStats.failed}
-            </span>
-            <button
-              className="rounded-full border border-slate-200 px-2 py-1 text-slate-600 hover:border-slate-300"
-              onClick={clearFinishedTasks}
-              disabled={!tasks.length}
-            >
-              清理已完成
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
-          {!tasks.length && (
-            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-xs text-slate-400">
-              暂无上传任务，开始上传后会在这里显示进度和结果
-            </div>
-          )}
-          {tasks.map((task) => {
-            const statusClass =
-              task.status === "success"
-                ? "bg-emerald-100 text-emerald-700"
-                : task.status === "failed"
-                ? "bg-rose-100 text-rose-700"
-                : "bg-blue-100 text-blue-700";
-            const stageText =
-              task.stage === "uploading"
-                ? "上传中"
-                : task.stage === "processing"
-                ? "云端处理中"
-                : task.status === "success"
-                ? "已完成"
-                : task.status === "failed"
-                ? "已失败"
-                : "已结束";
-            return (
-              <div key={task.id} className="rounded-2xl border border-slate-100 bg-slate-50/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-slate-800">{task.name}</div>
-                  <div className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass}`}>
-                    {task.status === "running" ? "进行中" : task.status === "success" ? "成功" : "失败"}
-                  </div>
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  {task.kind === "import" ? "新建合集" : "追加合集"} · {task.file_name} ·{" "}
-                  {formatSize(task.file_size)}
-                </div>
-
-                <div className="mt-3">
-                  <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>{stageText}</span>
-                    <span>{task.progress}%</span>
-                  </div>
-                  <div className="h-2 w-full rounded-full bg-slate-100">
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        task.status === "failed"
-                          ? "bg-rose-400"
-                          : task.status === "success"
-                          ? "bg-emerald-400"
-                          : "bg-blue-400"
-                      }`}
-                      style={{ width: `${task.progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {task.error && (
-                  <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                    {task.error}
-                  </div>
-                )}
-
-                {!!task.lines?.length && (
-                  <div className="mt-3 space-y-1 text-xs text-slate-600">
-                    {task.lines.map((line) => (
-                      <div key={line}>{line}</div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-                  <span>{new Date(task.created_at).toLocaleString()}</span>
-                  {task.status === "failed" && (
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 hover:border-slate-300"
-                      onClick={() => handleRetryTask(task.id)}
-                    >
-                      重试
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 border-t border-slate-100 pt-4">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold text-slate-600">历史任务（服务器）</div>
-            <div className="text-[11px] text-slate-400">总计 {historyTotal}</div>
-          </div>
-          <div className="mt-3 max-h-[320px] space-y-3 overflow-y-auto pr-1">
-            {!historyTasks.length && (
-              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-xs text-slate-400">
-                暂无历史任务记录
-              </div>
-            )}
-            {historyTasks.map((task) => {
-              const statusClass =
-                task.status === "success"
-                  ? "bg-emerald-100 text-emerald-700"
-                  : task.status === "failed"
-                  ? "bg-rose-100 text-rose-700"
-                  : "bg-blue-100 text-blue-700";
-              const lines = collectHistoryLines(task);
-              return (
-                <div
-                  key={task.id}
-                  className="rounded-2xl border border-slate-100 bg-white px-4 py-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-slate-700">
-                      {task.kind === "import" ? "新建合集" : "追加合集"} · #{task.id}
-                    </div>
-                    <div className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass}`}>
-                      {task.status === "running"
-                        ? "进行中"
-                        : task.status === "success"
-                        ? "成功"
-                        : "失败"}
-                    </div>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {task.file_name} · {formatSize(task.file_size)} ·{" "}
-                    {taskStageText(task.stage, task.status)}
-                  </div>
-
-                  {!!lines.length && (
-                    <div className="mt-2 space-y-1 text-xs text-slate-600">
-                      {lines.map((line) => (
-                        <div key={line}>{line}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {task.error_message && (
-                    <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                      {task.error_message}
-                    </div>
-                  )}
-
-                  <div className="mt-2 text-[11px] text-slate-400">
-                    {new Date(task.started_at).toLocaleString()}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
         <div className="rounded-3xl border border-slate-100 bg-white p-6">
@@ -1042,11 +915,48 @@ export default function Page() {
                   type="file"
                   accept=".zip"
                   className="mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  multiple
+                  onChange={(e) => {
+                    const nextFiles = Array.from(e.target.files || []);
+                    setFiles(nextFiles);
+                    const statusMap: Record<string, ImportZipItemStatus> = {};
+                    nextFiles.forEach((item) => {
+                      statusMap[getUploadFileKey(item)] = "pending";
+                    });
+                    setImportZipStatuses(statusMap);
+                  }}
                 />
-                {file && (
-                  <div className="mt-2 text-xs text-slate-500">
-                    已选择：{file.name}（{Math.round(file.size / 1024)} KB）
+                {!!files.length && (
+                  <div className="mt-2 space-y-1 text-xs text-slate-500">
+                    <div>已选择 {files.length} 个 ZIP：</div>
+                    {files.map((item) => (
+                      <div
+                        key={getUploadFileKey(item)}
+                        className="flex items-center gap-2"
+                      >
+                        {importZipStatuses[getUploadFileKey(item)] === "success" ? (
+                          <CheckCircle2 size={14} className="text-emerald-500" />
+                        ) : importZipStatuses[getUploadFileKey(item)] === "failed" ? (
+                          <XCircle size={14} className="text-rose-500" />
+                        ) : importZipStatuses[getUploadFileKey(item)] === "uploading" ? (
+                          <Loader2 size={14} className="animate-spin text-blue-500" />
+                        ) : (
+                          <span className="h-2 w-2 rounded-full bg-slate-300" />
+                        )}
+                        <span>
+                          {item.name}（{formatSize(item.size)}）
+                        </span>
+                        {importZipStatuses[getUploadFileKey(item)] === "success" ? (
+                          <span className="text-[10px] font-semibold text-emerald-600">已完成</span>
+                        ) : importZipStatuses[getUploadFileKey(item)] === "failed" ? (
+                          <span className="text-[10px] font-semibold text-rose-600">失败</span>
+                        ) : importZipStatuses[getUploadFileKey(item)] === "uploading" ? (
+                          <span className="text-[10px] font-semibold text-blue-600">上传中</span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">待上传</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1057,9 +967,9 @@ export default function Page() {
             <button
               className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800"
               onClick={handleUpload}
-              disabled={uploading}
+              disabled={uploading || appendUploading}
             >
-              {uploading ? "上传中..." : "开始上传"}
+              {uploading || appendUploading ? "上传中..." : "开始上传"}
             </button>
             <button
               className="rounded-xl border border-slate-200 px-5 py-2 text-xs text-slate-600 hover:border-slate-300"
@@ -1067,7 +977,8 @@ export default function Page() {
                 setTitle("");
                 setDescription("");
                 setSelectedTags([]);
-                setFile(null);
+                setFiles([]);
+                setImportZipStatuses({});
                 setTagKeyword("");
               }}
             >
@@ -1099,6 +1010,7 @@ export default function Page() {
             <div className="text-sm font-semibold text-slate-700">上传说明</div>
             <ul className="mt-3 list-disc space-y-2 pl-4 text-xs text-slate-500">
               <li>ZIP 文件将解压后上传到七牛云，并写入合集/表情/标签。</li>
+              <li>支持一次多选 ZIP：首个 ZIP 新建合集，其余 ZIP 自动顺序追加到该合集。</li>
               <li>文件会保存到分类前缀下，结构：raw/ + meta.json + source.zip。</li>
               <li>封面默认使用 ZIP 内第一张表情文件。</li>
             </ul>
@@ -1232,6 +1144,175 @@ export default function Page() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-100 bg-slate-50/60 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-700">上传任务与历史（次要）</div>
+            <div className="mt-1 text-xs text-slate-400">
+              这里用于查看后台任务状态，不影响主要上传操作流程。
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <span className="rounded-full bg-slate-100 px-2 py-1">总计 {taskStats.total}</span>
+            <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">
+              运行中 {taskStats.running}
+            </span>
+            <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">
+              成功 {taskStats.success}
+            </span>
+            <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">
+              失败 {taskStats.failed}
+            </span>
+            <button
+              className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:border-slate-300"
+              onClick={clearFinishedTasks}
+              disabled={!tasks.length}
+            >
+              清理已完成
+            </button>
+          </div>
+        </div>
+
+        <details
+          className="mt-4 overflow-hidden rounded-2xl border border-slate-100 bg-white"
+          open={taskStats.running > 0 || taskStats.failed > 0}
+        >
+          <summary className="cursor-pointer list-none bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+            上传任务中心（前端会话）
+          </summary>
+          <div className="max-h-[320px] space-y-2 overflow-y-auto p-4">
+            {!tasks.length && (
+              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-xs text-slate-400">
+                暂无上传任务
+              </div>
+            )}
+            {tasks.map((task) => {
+              const statusClass =
+                task.status === "success"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : task.status === "failed"
+                  ? "bg-rose-100 text-rose-700"
+                  : "bg-blue-100 text-blue-700";
+              const stageText =
+                task.stage === "uploading"
+                  ? "上传中"
+                  : task.stage === "processing"
+                  ? "云端处理中"
+                  : task.status === "success"
+                  ? "已完成"
+                  : task.status === "failed"
+                  ? "已失败"
+                  : "已结束";
+              return (
+                <div key={task.id} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-slate-700">{task.name}</div>
+                    <div className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass}`}>
+                      {task.status === "running" ? "进行中" : task.status === "success" ? "成功" : "失败"}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    {task.file_name} · {formatSize(task.file_size)} · {stageText}
+                  </div>
+                  <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${
+                        task.status === "failed"
+                          ? "bg-rose-400"
+                          : task.status === "success"
+                          ? "bg-emerald-400"
+                          : "bg-blue-400"
+                      }`}
+                      style={{ width: `${task.progress}%` }}
+                    />
+                  </div>
+                  {task.error && (
+                    <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+                      {task.error}
+                    </div>
+                  )}
+                  {!!task.lines?.length && (
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-600">
+                      {task.lines.map((line) => (
+                        <div key={line}>{line}</div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>{new Date(task.created_at).toLocaleString()}</span>
+                    {task.status === "failed" && (
+                      <button
+                        className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600 hover:border-slate-300"
+                        onClick={() => handleRetryTask(task.id)}
+                      >
+                        重试
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+
+        <details className="mt-3 overflow-hidden rounded-2xl border border-slate-100 bg-white">
+          <summary className="cursor-pointer list-none bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+            历史任务（服务器） · 总计 {historyTotal}
+          </summary>
+          <div className="max-h-[300px] space-y-2 overflow-y-auto p-4">
+            {!historyTasks.length && (
+              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-xs text-slate-400">
+                暂无历史任务记录
+              </div>
+            )}
+            {historyTasks.map((task) => {
+              const statusClass =
+                task.status === "success"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : task.status === "failed"
+                  ? "bg-rose-100 text-rose-700"
+                  : "bg-blue-100 text-blue-700";
+              const lines = collectHistoryLines(task);
+              return (
+                <div key={task.id} className="rounded-xl border border-slate-100 bg-white px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-slate-700">
+                      {task.kind === "import" ? "新建合集" : "追加合集"} · #{task.id}
+                    </div>
+                    <div className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass}`}>
+                      {task.status === "running"
+                        ? "进行中"
+                        : task.status === "success"
+                        ? "成功"
+                        : "失败"}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    {task.file_name} · {formatSize(task.file_size)} ·{" "}
+                    {taskStageText(task.stage, task.status)}
+                  </div>
+                  {!!lines.length && (
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-600">
+                      {lines.map((line) => (
+                        <div key={line}>{line}</div>
+                      ))}
+                    </div>
+                  )}
+                  {task.error_message && (
+                    <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+                      {task.error_message}
+                    </div>
+                  )}
+                  <div className="mt-2 text-[11px] text-slate-400">
+                    {new Date(task.started_at).toLocaleString()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </details>
       </div>
     </div>
   );

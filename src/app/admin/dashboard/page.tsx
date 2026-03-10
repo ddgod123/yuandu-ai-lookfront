@@ -1,66 +1,465 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
+import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
+
+type TodayStatsResponse = {
+  date?: string;
+  today_new_emojis?: number;
+};
+
+type HomeStatsResponse = {
+  stat_date?: string;
+  total_collections?: number;
+  total_emojis?: number;
+  updated_at?: string;
+  source?: string;
+};
+
+type ThemeItem = {
+  id: number;
+  status?: string;
+};
+
+type JoinApplicationListResponse = {
+  total?: number;
+};
+
+type UploadTaskListResponse = {
+  total?: number;
+};
+
+type SecurityOverviewResponse = {
+  blocked_events_last_24h?: number;
+  rate_limited_last_24h?: number;
+  active_blacklist_count?: number;
+};
+
+type CollectionItem = {
+  id: number;
+  title?: string;
+  download_count?: number;
+  file_count?: number;
+};
+
+type CollectionListResponse = {
+  items?: CollectionItem[];
+};
+
+type DashboardTrendPointResponse = {
+  date?: string;
+  new_emojis?: number;
+  downloads?: number;
+  blocked_events?: number;
+};
+
+type DashboardTrendResponse = {
+  items?: DashboardTrendPointResponse[];
+};
+
+type DashboardTrendPoint = {
+  date: string;
+  newEmojis: number;
+  downloads: number;
+  blockedEvents: number;
+};
+
+type DashboardSummary = {
+  statDate: string;
+  todayNewEmojis: number;
+  totalCollections: number;
+  totalEmojis: number;
+  activeThemes: number;
+  source: string;
+};
+
+type DashboardQueue = {
+  joinApplications: number;
+  uploadRunning: number;
+  uploadFailed: number;
+  blockedLast24h: number;
+  rateLimitedLast24h: number;
+  activeBlacklist: number;
+};
+
+const EMPTY_SUMMARY: DashboardSummary = {
+  statDate: "",
+  todayNewEmojis: 0,
+  totalCollections: 0,
+  totalEmojis: 0,
+  activeThemes: 0,
+  source: "",
+};
+
+const EMPTY_QUEUE: DashboardQueue = {
+  joinApplications: 0,
+  uploadRunning: 0,
+  uploadFailed: 0,
+  blockedLast24h: 0,
+  rateLimitedLast24h: 0,
+  activeBlacklist: 0,
+};
+
+async function fetchJSON<T>(url: string): Promise<T> {
+  const res = await fetchWithAuth(url);
+  if (!res.ok) {
+    throw new Error(`request failed: ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
 
 export default function DashboardPage() {
+  const [summary, setSummary] = useState<DashboardSummary>(EMPTY_SUMMARY);
+  const [queue, setQueue] = useState<DashboardQueue>(EMPTY_QUEUE);
+  const [topCollections, setTopCollections] = useState<CollectionItem[]>([]);
+  const [trendItems, setTrendItems] = useState<DashboardTrendPoint[]>([]);
+  const [fetchedAt, setFetchedAt] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const failedParts: string[] = [];
+
+    try {
+      const [
+        todayResult,
+        homeResult,
+        themeResult,
+        joinResult,
+        uploadRunningResult,
+        uploadFailedResult,
+        securityResult,
+        collectionResult,
+        trendResult,
+      ] = await Promise.allSettled([
+        fetchJSON<TodayStatsResponse>(`${API_BASE}/api/stats/today`),
+        fetchJSON<HomeStatsResponse>(`${API_BASE}/api/stats/home`),
+        fetchJSON<ThemeItem[]>(`${API_BASE}/api/admin/themes`),
+        fetchJSON<JoinApplicationListResponse>(
+          `${API_BASE}/api/admin/join-applications?page=1&page_size=1`
+        ),
+        fetchJSON<UploadTaskListResponse>(
+          `${API_BASE}/api/admin/upload-tasks?page=1&page_size=1&status=running`
+        ),
+        fetchJSON<UploadTaskListResponse>(
+          `${API_BASE}/api/admin/upload-tasks?page=1&page_size=1&status=failed`
+        ),
+        fetchJSON<SecurityOverviewResponse>(`${API_BASE}/api/admin/security/overview`),
+        fetchJSON<CollectionListResponse>(
+          `${API_BASE}/api/collections?page=1&page_size=5&sort=download_count&order=desc&status=active&visibility=public`
+        ),
+        fetchJSON<DashboardTrendResponse>(`${API_BASE}/api/admin/dashboard/trends?days=7`),
+      ]);
+
+      const todayData =
+        todayResult.status === "fulfilled" ? todayResult.value : (failedParts.push("今日新增"), {});
+      const homeData =
+        homeResult.status === "fulfilled" ? homeResult.value : (failedParts.push("站点概览"), {});
+      const themeData =
+        themeResult.status === "fulfilled" ? themeResult.value : (failedParts.push("主题统计"), []);
+      const joinData =
+        joinResult.status === "fulfilled" ? joinResult.value : (failedParts.push("加入申请"), {});
+      const uploadRunningData =
+        uploadRunningResult.status === "fulfilled"
+          ? uploadRunningResult.value
+          : (failedParts.push("上传任务(运行中)"), {});
+      const uploadFailedData =
+        uploadFailedResult.status === "fulfilled"
+          ? uploadFailedResult.value
+          : (failedParts.push("上传任务(失败)"), {});
+      const securityData =
+        securityResult.status === "fulfilled"
+          ? securityResult.value
+          : (failedParts.push("风控概览"), {});
+      const collectionData =
+        collectionResult.status === "fulfilled"
+          ? collectionResult.value
+          : (failedParts.push("热门合集"), {});
+      const trendData =
+        trendResult.status === "fulfilled" ? trendResult.value : (failedParts.push("7天趋势"), {});
+
+      const activeThemes = Array.isArray(themeData)
+        ? themeData.filter((item) => {
+            const status = (item.status || "").trim().toLowerCase();
+            return !status || status === "active";
+          }).length
+        : 0;
+
+      setSummary({
+        statDate: (todayData.date || homeData.stat_date || "").trim(),
+        todayNewEmojis: Number(todayData.today_new_emojis || 0),
+        totalCollections: Number(homeData.total_collections || 0),
+        totalEmojis: Number(homeData.total_emojis || 0),
+        activeThemes,
+        source: (homeData.source || "").trim(),
+      });
+
+      setQueue({
+        joinApplications: Number(joinData.total || 0),
+        uploadRunning: Number(uploadRunningData.total || 0),
+        uploadFailed: Number(uploadFailedData.total || 0),
+        blockedLast24h: Number(securityData.blocked_events_last_24h || 0),
+        rateLimitedLast24h: Number(securityData.rate_limited_last_24h || 0),
+        activeBlacklist: Number(securityData.active_blacklist_count || 0),
+      });
+
+      setTopCollections(
+        Array.isArray(collectionData.items) ? collectionData.items.slice(0, 5) : []
+      );
+      setTrendItems(
+        Array.isArray(trendData.items)
+          ? trendData.items.map((item) => ({
+              date: (item.date || "").trim(),
+              newEmojis: Number(item.new_emojis || 0),
+              downloads: Number(item.downloads || 0),
+              blockedEvents: Number(item.blocked_events || 0),
+            }))
+          : []
+      );
+      setFetchedAt(new Date().toISOString());
+
+      if (failedParts.length >= 9) {
+        setError("仪表盘数据加载失败，请稍后重试");
+      } else if (failedParts.length > 0) {
+        setError(`部分数据未加载成功：${failedParts.join("、")}`);
+      }
+    } catch {
+      setError("仪表盘数据加载失败，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  const needsAttention = queue.uploadFailed + queue.blockedLast24h + queue.rateLimitedLast24h;
+  const maxDownload = useMemo(
+    () =>
+      topCollections.reduce(
+        (currentMax, item) => Math.max(currentMax, Number(item.download_count || 0)),
+        0
+      ),
+    [topCollections]
+  );
+
+  const summaryCards = useMemo(
+    () => [
+      {
+        label: "今日新增表情",
+        value: summary.todayNewEmojis,
+        badge: summary.statDate ? summary.statDate : "实时",
+        badgeClassName: "bg-emerald-50 text-emerald-600",
+        icon: (
+          <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15V6" />
+              <path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+              <path d="M12 12H3" />
+              <path d="M16 6H3" />
+              <path d="M12 18H3" />
+            </svg>
+          </div>
+        ),
+      },
+      {
+        label: "公开表情总数",
+        value: summary.totalEmojis,
+        badge: summary.source === "snapshot" ? "快照" : "实时",
+        badgeClassName: "bg-sky-50 text-sky-600",
+        icon: (
+          <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+          </div>
+        ),
+      },
+      {
+        label: "活跃主题",
+        value: summary.activeThemes,
+        badge: fetchedAt ? `更新 ${formatClock(fetchedAt)}` : "实时",
+        badgeClassName: "bg-indigo-50 text-indigo-600",
+        icon: (
+          <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 3v18" />
+              <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+              <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+              <path d="M7 21h10" />
+              <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+            </svg>
+          </div>
+        ),
+      },
+    ],
+    [fetchedAt, summary.activeThemes, summary.source, summary.statDate, summary.todayNewEmojis, summary.totalEmojis]
+  );
+
+  const queueItems = useMemo(
+    () => [
+      {
+        title: "上传失败任务",
+        helper: `运行中 ${queue.uploadRunning}`,
+        count: queue.uploadFailed,
+        color: "bg-rose-500",
+        href: "/admin/archive/assets",
+      },
+      {
+        title: "加入申请总量",
+        helper: "请定期处理",
+        count: queue.joinApplications,
+        color: "bg-amber-500",
+        href: "/admin/audit/join-applications",
+      },
+      {
+        title: "风控拦截（24h）",
+        helper: `限流 ${queue.rateLimitedLast24h} · 黑名单 ${queue.activeBlacklist}`,
+        count: queue.blockedLast24h,
+        color: "bg-emerald-500",
+        href: "/admin/users/security",
+      },
+    ],
+    [
+      queue.activeBlacklist,
+      queue.blockedLast24h,
+      queue.joinApplications,
+      queue.rateLimitedLast24h,
+      queue.uploadFailed,
+      queue.uploadRunning,
+    ]
+  );
+
+  const handleExportReport = useCallback(() => {
+    const payload = {
+      exported_at: new Date().toISOString(),
+      summary,
+      queue,
+      trends: trendItems.map((item) => ({
+        date: item.date,
+        new_emojis: item.newEmojis,
+        downloads: item.downloads,
+        blocked_events: item.blockedEvents,
+      })),
+      top_collections: topCollections.map((item) => ({
+        id: item.id,
+        title: item.title || `合集 #${item.id}`,
+        download_count: Number(item.download_count || 0),
+        file_count: Number(item.file_count || 0),
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const link = document.createElement("a");
+    const dateLabel = (summary.statDate || new Date().toISOString().slice(0, 10)).replaceAll("/", "-");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = `dashboard-report-${dateLabel}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [queue, summary, topCollections, trendItems]);
+
   return (
     <div className="space-y-8">
       <SectionHeader
         title="工作台总览"
-        description="欢迎回来，首席档案官。这是今日档案库的运行简报。"
+        description={
+          fetchedAt
+            ? `公开合集 ${formatNumber(summary.totalCollections)} · 公开表情 ${formatNumber(
+                summary.totalEmojis
+              )} · 更新于 ${formatDateTime(fetchedAt)}`
+            : "欢迎回来，首席档案官。这是今日档案库的运行简报。"
+        }
         actions={
-          <button className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>导出日报</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md"
+              onClick={loadDashboard}
+              disabled={loading}
+            >
+              {loading ? "刷新中..." : "刷新"}
+            </button>
+            <button
+              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md"
+              onClick={handleExportReport}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>导出日报</span>
+            </button>
+          </div>
         }
       />
 
-      {/* Stats Grid */}
+      {error && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {error}
+        </div>
+      )}
+
       <div className="grid gap-6 md:grid-cols-3">
-        {[
-          { 
-            label: "本周新增表情", 
-            value: "128", 
-            trend: "+12%", 
-            positive: true,
-            icon: (
-              <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
-              </div>
-            )
-          },
-          { 
-            label: "待审核条目", 
-            value: "19", 
-            trend: "-5%", 
-            positive: true,
-            icon: (
-              <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-amber-50 text-amber-600 ring-1 ring-amber-100">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
-              </div>
-            )
-          },
-          { 
-            label: "活跃主题", 
-            value: "24", 
-            trend: "+3", 
-            positive: true,
-            icon: (
-              <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
-              </div>
-            )
-          },
-        ].map((item) => (
+        {summaryCards.map((item) => (
           <div
             key={item.label}
             className="group flex flex-col justify-between rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all duration-300 hover:shadow-xl hover:shadow-slate-200/50"
           >
             <div className="flex items-start justify-between">
               {item.icon}
-              <div className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[11px] font-bold ${
-                item.positive ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-              }`}>
-                {item.trend}
+              <div className={`rounded-xl px-2 py-1 text-[11px] font-bold ${item.badgeClassName}`}>
+                {item.badge}
               </div>
             </div>
             <div className="mt-6">
@@ -68,84 +467,215 @@ export default function DashboardPage() {
                 {item.label}
               </div>
               <div className="mt-1 text-4xl font-black tracking-tight text-slate-900">
-                {item.value}
+                {formatNumber(item.value)}
               </div>
             </div>
           </div>
         ))}
       </div>
 
+      <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-slate-900">近 7 天趋势</h3>
+          <span className="text-xs text-slate-400">新增 / 下载 / 风控拦截</span>
+        </div>
+        {trendItems.length > 0 ? (
+          <div className="mt-6 grid gap-5 lg:grid-cols-3">
+            <TrendMiniBars
+              title="新增表情"
+              colorClassName="bg-emerald-400"
+              items={trendItems}
+              getValue={(item) => item.newEmojis}
+            />
+            <TrendMiniBars
+              title="下载次数"
+              colorClassName="bg-sky-400"
+              items={trendItems}
+              getValue={(item) => item.downloads}
+            />
+            <TrendMiniBars
+              title="风控拦截"
+              colorClassName="bg-rose-400"
+              items={trendItems}
+              getValue={(item) => item.blockedEvents}
+            />
+          </div>
+        ) : (
+          <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-8 text-center text-sm text-slate-400">
+            {loading ? "正在加载趋势数据..." : "暂无趋势数据"}
+          </div>
+        )}
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        {/* Popular Collections */}
         <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-slate-900">热门合集 TOP 5</h3>
-            <button className="text-xs font-bold text-emerald-600 hover:underline">查看全部</button>
+            <h3 className="text-lg font-bold text-slate-900">热门合集 TOP 5（按下载）</h3>
+            <Link href="/admin/archive/collections" className="text-xs font-bold text-emerald-600 hover:underline">
+              查看全部
+            </Link>
           </div>
           <div className="mt-6 space-y-4">
-            {["猫猫表情包", "办公摸鱼", "贴纸合集", "情侣日常", "梗图精选"].map(
-              (name, index) => (
+            {topCollections.map((item, index) => {
+              const downloadCount = Number(item.download_count || 0);
+              const progressWidth =
+                maxDownload > 0 ? Math.max(8, Math.round((downloadCount / maxDownload) * 100)) : 0;
+              return (
                 <div
-                  key={name}
+                  key={item.id}
                   className="group flex items-center justify-between rounded-3xl bg-slate-50 px-5 py-4 transition-all hover:bg-white hover:shadow-md hover:ring-1 hover:ring-slate-100"
                 >
                   <div className="flex items-center gap-4">
                     <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-200 text-xs font-black text-slate-500 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
                       {index + 1}
                     </span>
-                    <span className="font-bold text-slate-700">{name}</span>
+                    <div>
+                      <div className="font-bold text-slate-700">
+                        {item.title?.trim() || `合集 #${item.id}`}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {formatNumber(Number(item.file_count || 0))} 张表情
+                      </div>
+                    </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="h-1.5 w-24 rounded-xl bg-slate-200 overflow-hidden">
-                      <div 
-                        className="h-full bg-emerald-400 rounded-xl" 
-                        style={{ width: `${100 - index * 15}%` }}
+                    <div className="h-1.5 w-24 overflow-hidden rounded-xl bg-slate-200">
+                      <div
+                        className="h-full rounded-xl bg-emerald-400"
+                        style={{ width: `${progressWidth}%` }}
                       />
                     </div>
-                    <span className="text-xs font-bold text-emerald-600">+{10 + index * 4}%</span>
+                    <span className="text-xs font-bold text-emerald-600">
+                      {formatNumber(downloadCount)}
+                    </span>
                   </div>
                 </div>
-              )
+              );
+            })}
+            {!topCollections.length && (
+              <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-8 text-center text-sm text-slate-400">
+                {loading ? "正在加载热门合集..." : "暂无下载数据"}
+              </div>
             )}
           </div>
         </div>
 
-        {/* Audit Queue */}
         <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-900">审核队列</h3>
-            <span className="rounded-xl bg-rose-50 px-2.5 py-1 text-[10px] font-black text-rose-500">
-              需要处理
+            <span
+              className={`rounded-xl px-2.5 py-1 text-[10px] font-black ${
+                needsAttention > 0 ? "bg-rose-50 text-rose-500" : "bg-emerald-50 text-emerald-600"
+              }`}
+            >
+              {needsAttention > 0 ? "需要处理" : "运行稳定"}
             </span>
           </div>
           <div className="mt-6 space-y-4">
-            {[
-              { title: "动态表情待审核", count: 12, color: "bg-amber-500" },
-              { title: "版权标记待确认", count: 4, color: "bg-emerald-500" },
-              { title: "用户举报处理", count: 3, color: "bg-rose-500" },
-            ].map((item) => (
-              <div
+            {queueItems.map((item) => (
+              <Link
                 key={item.title}
-                className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-5 transition-all hover:border-slate-200 hover:shadow-sm"
+                href={item.href}
+                className="relative block overflow-hidden rounded-3xl border border-slate-100 bg-white p-5 transition-all hover:border-slate-200 hover:shadow-sm"
               >
                 <div className={`absolute left-0 top-0 h-full w-1 ${item.color}`} />
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-bold text-slate-800">{item.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      最后更新: {new Date().toLocaleTimeString()}
-                    </div>
+                    <div className="mt-1 text-xs text-slate-500">{item.helper}</div>
                   </div>
-                  <div className="text-2xl font-black text-slate-900">{item.count}</div>
+                  <div className="text-2xl font-black text-slate-900">{formatNumber(item.count)}</div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
-          <button className="mt-6 w-full rounded-3xl bg-slate-50 py-4 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100">
-            进入审核工作台
-          </button>
+          <Link
+            href="/admin/users/security"
+            className="mt-6 block w-full rounded-3xl bg-slate-50 py-4 text-center text-sm font-bold text-slate-600 transition-all hover:bg-slate-100"
+          >
+            进入风控工作台
+          </Link>
         </div>
       </div>
     </div>
   );
+}
+
+function formatNumber(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 10000) return `${(value / 10000).toFixed(1)}w`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
+}
+
+function formatClock(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "--:--";
+  return parsed.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatDateTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("zh-CN", { hour12: false });
+}
+
+function TrendMiniBars({
+  title,
+  colorClassName,
+  items,
+  getValue,
+}: {
+  title: string;
+  colorClassName: string;
+  items: DashboardTrendPoint[];
+  getValue: (item: DashboardTrendPoint) => number;
+}) {
+  const total = items.reduce((sum, item) => sum + Math.max(0, getValue(item)), 0);
+  const maxValue = items.reduce((max, item) => Math.max(max, Math.max(0, getValue(item))), 0);
+
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-slate-700">{title}</div>
+        <div className="text-xs font-semibold text-slate-500">7天累计 {formatNumber(total)}</div>
+      </div>
+      <div className="mt-4 grid grid-cols-7 gap-2">
+        {items.map((item) => {
+          const value = Math.max(0, getValue(item));
+          const ratio = maxValue > 0 ? Math.round((value / maxValue) * 100) : 0;
+          const height = maxValue > 0 ? Math.max(8, ratio) : 0;
+          return (
+            <div key={`${title}-${item.date}`} className="flex flex-col items-center gap-1">
+              <div className="flex h-24 w-full items-end rounded-md bg-white px-1 pb-1">
+                <div
+                  className={`w-full rounded-sm ${colorClassName}`}
+                  style={{ height: `${height}%` }}
+                  title={`${item.date}: ${value}`}
+                />
+              </div>
+              <div className="text-[10px] text-slate-400">{formatShortDate(item.date)}</div>
+              <div className="text-[10px] font-semibold text-slate-600">{formatNumber(value)}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatShortDate(value: string) {
+  if (!value) return "--";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value.slice(5);
+  return parsed.toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  });
 }

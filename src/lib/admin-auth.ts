@@ -8,6 +8,26 @@ const REFRESH_KEY = "admin_refresh";
 const EXPIRES_AT_KEY = "admin_expires_at";
 const DISPLAY_NAME_KEY = "admin_display_name";
 const ROLE_KEY = "admin_role";
+const REQUIRED_ROLE = "super_admin";
+
+function decodeTokenRole(token: string) {
+  const raw = token.trim();
+  if (!raw) return "";
+  const parts = raw.split(".");
+  if (parts.length < 2) return "";
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as { role?: string };
+    return (payload.role || "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function hasAdminPermission(role: string) {
+  return role === REQUIRED_ROLE;
+}
 
 export function getAccessToken() {
   return typeof window === "undefined"
@@ -74,12 +94,16 @@ export function isExpiringSoon() {
 
 export async function refreshAccessToken() {
   const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    clearTokens();
+    return false;
+  }
 
   const res = await fetch(`${API_BASE}/api/auth/refresh`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+    body: JSON.stringify({ refresh_token: refreshToken }),
   });
 
   if (!res.ok) {
@@ -93,7 +117,13 @@ export async function refreshAccessToken() {
     return false;
   }
 
-  setTokens(data.access_token, data.refresh_token, data.expires_in || 0);
+  const role = decodeTokenRole(data.access_token);
+  if (!hasAdminPermission(role)) {
+    clearTokens();
+    return false;
+  }
+
+  setTokens(data.access_token, data.refresh_token, data.expires_in || 0, undefined, role);
   return true;
 }
 
@@ -113,8 +143,12 @@ export async function ensureValidSession() {
   if (!access) {
     return await refreshAccessToken();
   }
+  if (!hasAdminPermission(decodeTokenRole(access))) {
+    clearTokens();
+    return false;
+  }
   if (isExpiringSoon()) {
-    await refreshAccessToken();
+    return await refreshAccessToken();
   }
   return true;
 }
@@ -123,8 +157,9 @@ export async function fetchWithAuth(
   input: RequestInfo | URL,
   init: RequestInit = {}
 ) {
-  if (isExpiringSoon()) {
-    await refreshAccessToken();
+  if (!(await ensureValidSession())) {
+    const emptyHeaders = new Headers(init.headers || {});
+    return await fetch(input, { ...init, headers: emptyHeaders, credentials: "include" });
   }
   let token = getAccessToken();
   const headers = new Headers(init.headers || {});
@@ -138,6 +173,10 @@ export async function fetchWithAuth(
     const retryHeaders = new Headers(init.headers || {});
     if (token) retryHeaders.set("Authorization", `Bearer ${token}`);
     res = await fetch(input, { ...init, headers: retryHeaders, credentials: "include" });
+  }
+
+  if (res.status === 403) {
+    clearTokens();
   }
 
   return res;

@@ -7,6 +7,7 @@ import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 type RedeemCodeItem = {
   id: number;
   code_mask: string;
+  code_plain?: string;
   batch_no: string;
   plan: string;
   duration_days: number;
@@ -72,6 +73,7 @@ export default function RedeemCodesPage() {
   const [selectedCodeID, setSelectedCodeID] = useState<number | null>(null);
   const [records, setRecords] = useState<RedemptionRecordResponse>({ items: [], total: 0 });
   const [recordsLoading, setRecordsLoading] = useState(false);
+  const [copiedCodeID, setCopiedCodeID] = useState<number | null>(null);
 
   const loadCodes = useCallback(async () => {
     setLoading(true);
@@ -166,6 +168,30 @@ export default function RedeemCodesPage() {
     if (!generated?.codes?.length) return "";
     return generated.codes.join("\n");
   }, [generated]);
+
+  const copyText = async (text: string, codeID: number) => {
+    const value = text.trim();
+    if (!value) {
+      setError("该兑换码暂无明文，无法复制（历史数据）");
+      return;
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const input = document.createElement("input");
+        input.value = value;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      }
+      setCopiedCodeID(codeID);
+      setTimeout(() => setCopiedCodeID((prev) => (prev === codeID ? null : prev)), 1200);
+    } catch {
+      setError("复制失败，请手动复制");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -331,7 +357,20 @@ export default function RedeemCodesPage() {
               {data.items.map((item) => (
                 <tr key={item.id} className="border-t border-slate-100">
                   <td className="px-3 py-2">{item.id}</td>
-                  <td className="px-3 py-2">{item.code_mask}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-700">
+                        {item.code_plain?.trim() || item.code_mask}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyText(item.code_plain || "", item.id)}
+                        className="rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
+                      >
+                        {copiedCodeID === item.id ? "已复制" : "复制"}
+                      </button>
+                    </div>
+                  </td>
                   <td className="px-3 py-2">{item.batch_no || "-"}</td>
                   <td className="px-3 py-2">{item.plan}</td>
                   <td className="px-3 py-2">{item.duration_days}</td>

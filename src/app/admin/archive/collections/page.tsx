@@ -5,6 +5,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import Link from "next/link";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
+import { 
+  RefreshCw, 
+  ChevronDown, 
+  Edit3, 
+  Image as ImageIcon, 
+  Trash2, 
+  LayoutGrid,
+  Tag as TagIcon,
+  Layers,
+  User,
+  Clock,
+  Eye,
+  AlertTriangle,
+  FileText,
+  Star,
+  ArrowUpCircle,
+  List
+} from "lucide-react";
 
 type Collection = {
   id: number;
@@ -18,6 +36,7 @@ type Collection = {
   theme_id?: number | null;
   source?: string;
   qiniu_prefix?: string;
+  path_mismatch?: boolean;
   file_count?: number;
   is_featured?: boolean;
   is_pinned?: boolean;
@@ -592,152 +611,203 @@ export default function Page() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-6">
       <SectionHeader
         title="表情包合集"
-        description="查看合集数据、封面与发布状态。"
+        description="管理全站表情包合集，支持分类筛选、推荐置顶及批量操作。"
         actions={
           <button
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:border-slate-300"
+            className="group flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-slate-200 transition-all hover:bg-emerald-600 hover:shadow-emerald-100 active:scale-95 disabled:opacity-60"
             onClick={() =>
               loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter)
             }
             disabled={loading}
           >
-            {loading ? "加载中..." : "刷新"}
+            <RefreshCw size={16} className={`transition-transform ${loading ? "animate-spin" : "group-hover:rotate-180"}`} />
+            {loading ? "正在同步..." : "刷新数据"}
           </button>
         }
       />
 
       {error && (
-        <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+        <div className="flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-bold text-red-600 animate-in fade-in slide-in-from-top-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] text-white">!</div>
           {error}
         </div>
       )}
 
-      <div className="rounded-3xl border border-slate-100 bg-white p-5">
-        <div className="sticky top-4 z-20 mb-4 rounded-2xl border border-slate-100 bg-white/95 p-4 shadow-sm backdrop-blur">
-          <div className="text-xs font-semibold text-slate-400">一级分类</div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {topCategories.map((item) => {
-              const active = item.id === selectedTopId;
-              return (
+      <div className="rounded-[2.5rem] border border-slate-100 bg-white p-6 shadow-sm">
+        {/* 筛选区域 */}
+        <div className="mb-6 rounded-3xl border border-slate-100 bg-slate-50/40 p-6 shadow-sm transition-all hover:shadow-md">
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                <Layers size={14} /> 一级分类
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2.5">
                 <button
-                  key={item.id}
-                  type="button"
                   onClick={() => {
-                    setSelectedTopId(item.id);
+                    setSelectedTopId(null);
                     setSelectedChildId(null);
                     setPage(1);
                   }}
-                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                    active
-                      ? "bg-slate-900 text-white"
-                      : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                    selectedTopId === null
+                      ? "bg-slate-900 text-white shadow-lg shadow-slate-200 scale-105"
+                      : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                   }`}
                 >
-                  {item.name}
+                  全部
                 </button>
-              );
-            })}
-            {!topCategories.length && (
-              <div className="text-xs text-slate-400">暂无一级分类</div>
-            )}
-          </div>
-          <div className="mt-4 text-xs font-semibold text-slate-400">二级分类</div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {selectedChildren.map((item) => {
-              const active = item.id === selectedChildId;
-              return (
+                {topCategories.map((item) => {
+                  const active = item.id === selectedTopId;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedTopId(item.id);
+                        setSelectedChildId(null);
+                        setPage(1);
+                      }}
+                      className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                        active
+                          ? "bg-slate-900 text-white shadow-lg shadow-slate-200 scale-105"
+                          : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-50">
+              <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                <LayoutGrid size={14} /> 二级分类
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2.5">
                 <button
-                  key={item.id}
-                  type="button"
                   onClick={() => {
-                    setSelectedChildId(item.id);
+                    setSelectedChildId(null);
                     setPage(1);
                   }}
-                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                    active
-                      ? "bg-emerald-500 text-white"
-                      : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                    selectedTopId && selectedChildId === null
+                      ? "bg-emerald-500 text-white shadow-lg shadow-emerald-100 scale-105"
+                      : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                   }`}
                 >
-                  {item.name}
+                  全部子类
                 </button>
-              );
-            })}
-            {!selectedChildren.length && (
-              <div className="text-xs text-slate-400">
-                {selectedTopId ? "该一级分类暂无二级分类" : "请先选择一级分类"}
+                {selectedChildren.map((item) => {
+                  const active = item.id === selectedChildId;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedChildId(item.id);
+                        setPage(1);
+                      }}
+                      className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                        active
+                          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-100 scale-105"
+                          : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.name}
+                    </button>
+                  );
+                })}
+                {!selectedChildren.length && (
+                  <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-4 py-2 text-[11px] font-bold text-slate-400 italic">
+                    {selectedTopId ? "该分类下暂无二级分类" : "请先选择一级分类以查看子类"}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <div className="text-sm font-semibold text-slate-700">
-            合集列表
-            <span className="ml-2 text-xs text-slate-400">共 {total} 条</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span>推荐</span>
-            <select
-              className="rounded-xl border border-slate-100 bg-white px-3 py-1 text-xs text-slate-600"
-              value={featuredFilter}
-              onChange={(e) => {
-                setPage(1);
-                setFeaturedFilter(e.target.value as "all" | "featured");
-              }}
-            >
-              <option value="all">全部</option>
-              <option value="featured">仅推荐</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span>每页</span>
-            <select
-              className="rounded-xl border border-slate-100 bg-white px-3 py-1 text-xs text-slate-600"
-              value={pageSize}
-              onChange={(e) => {
-                setPage(1);
-                setPageSize(Number(e.target.value));
-              }}
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-            </select>
+            </div>
           </div>
         </div>
 
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">标题</th>
-                <th className="px-4 py-3">首图</th>
-                <th className="px-4 py-3">分类</th>
-                <th className="px-4 py-3">主题</th>
-                <th className="px-4 py-3">IP</th>
-                <th className="px-4 py-3">标签</th>
-                <th className="px-4 py-3">推荐/置顶</th>
-                <th className="px-4 py-3">文件数</th>
-                <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">可见性</th>
-                <th className="px-4 py-3">创建时间</th>
-                <th className="px-4 py-3">操作</th>
+        {/* 列表头部工具栏 */}
+        <div className="flex flex-wrap items-center justify-between gap-6 px-2 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-1 rounded-full bg-emerald-500" />
+            <div>
+              <h3 className="text-lg font-black text-slate-900">合集列表</h3>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total {total} Collections</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <Star size={14} /> 推荐筛选
+              </div>
+              <select
+                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                value={featuredFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setFeaturedFilter(e.target.value as "all" | "featured");
+                }}
+              >
+                <option value="all">显示全部</option>
+                <option value="featured">仅看推荐</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <List size={14} /> 每页
+              </div>
+              <select
+                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                value={pageSize}
+                onChange={(e) => {
+                  setPage(1);
+                  setPageSize(Number(e.target.value));
+                }}
+              >
+                <option value={10}>10 条</option>
+                <option value={20}>20 条</option>
+                <option value={50}>50 条</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* 表格区域 */}
+        <div className="overflow-hidden rounded-[2rem] border border-slate-100 bg-white shadow-sm">
+          <div className="max-h-[58vh] overflow-auto">
+            <table className="min-w-[1220px] w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-100 bg-white">
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">ID</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">合集信息</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">封面图</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">分类/主题/IP</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">标签属性</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 text-center whitespace-nowrap">统计</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">状态</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">创建时间</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 text-right whitespace-nowrap">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-50">
               {collections.map((item) => (
-                <tr key={item.id} className="text-slate-700">
-                  <td className="px-4 py-3">{item.id}</td>
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-slate-800">{item.title}</div>
-                    <div className="text-xs text-slate-400">{item.slug}</div>
+                <tr key={item.id} className="group transition-colors hover:bg-slate-50/50">
+                  <td className="px-6 py-6 text-xs font-bold text-slate-400">#{item.id}</td>
+                  <td className="px-6 py-6">
+                    <div className="max-w-[200px] space-y-1">
+                      <div className="truncate text-sm font-black text-slate-900 group-hover:text-emerald-600 transition-colors">{item.title}</div>
+                      <div className="truncate text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{item.slug}</div>
+                    </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="h-16 w-16 overflow-hidden rounded-xl border border-slate-200 bg-white flex items-center justify-center">
+                  <td className="px-6 py-6">
+                    <div className="relative h-16 w-16 overflow-hidden rounded-2xl border-2 border-white bg-slate-100 shadow-sm ring-1 ring-slate-100 transition-transform group-hover:scale-110 group-hover:rotate-3">
                       {resolveCoverUrl(item) ? (
                         <CoverThumb
                           key={`${item.id}-${item.cover_url || ""}-${item.qiniu_prefix || ""}`}
@@ -747,137 +817,162 @@ export default function Page() {
                           qiniuPrefix={item.qiniu_prefix}
                         />
                       ) : (
-                        <span className="text-xs text-slate-400">-</span>
+                        <div className="flex h-full w-full items-center justify-center text-slate-300">
+                          <ImageIcon size={20} />
+                        </div>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    {item.category_id ? (
-                      <span className="text-xs text-slate-600">
-                        {categoryMap.get(item.category_id) || `#${item.category_id}`}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {item.theme_id ? (
-                      <span className="text-xs text-slate-600">
-                        {themeMap.get(item.theme_id) || `#${item.theme_id}`}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {item.ip_id ? (
-                      <span className="text-xs text-slate-600">
-                        {ipMap.get(item.ip_id) || `#${item.ip_id}`}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {item.tags && item.tags.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {item.tags.slice(0, 6).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600"
-                          >
-                            {tag.name}
-                          </span>
-                        ))}
-                        {item.tags.length > 6 && (
-                          <span className="text-[11px] text-slate-400">
-                            +{item.tags.length - 6}
-                          </span>
-                        )}
+                  <td className="px-6 py-6">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Layers size={12} className="text-slate-300" />
+                        <span className="text-[11px] font-black text-slate-600">
+                          {item.category_id ? categoryMap.get(item.category_id) : "未分类"}
+                        </span>
                       </div>
-                    ) : (
-                      <span className="text-xs text-slate-400">-</span>
-                    )}
+                      {item.path_mismatch ? (
+                        <div className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">
+                          <AlertTriangle size={11} />
+                          分类与实际存储路径不一致
+                        </div>
+                      ) : null}
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <TagIcon size={12} className="text-slate-200" />
+                        <span className="text-[10px] font-bold">
+                          {item.theme_id ? themeMap.get(item.theme_id) : "无主题"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <User size={12} className="text-slate-200" />
+                        <span className="text-[10px] font-bold">
+                          {item.ip_id ? ipMap.get(item.ip_id) : "无IP"}
+                        </span>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
+                  <td className="px-6 py-6">
+                    <div className="flex flex-wrap gap-1.5 max-w-[180px]">
                       {item.is_featured && (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
-                          推荐
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-600 ring-1 ring-amber-100">
+                          <Star size={10} className="fill-amber-500" /> 推荐
                         </span>
                       )}
                       {item.is_pinned && (
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
-                          置顶
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-600 ring-1 ring-emerald-100">
+                          <ArrowUpCircle size={10} /> 置顶
                         </span>
                       )}
-                      {!item.is_featured && !item.is_pinned && (
-                        <span className="text-xs text-slate-400">-</span>
+                      {item.tags?.slice(0, 3).map((tag) => (
+                        <span key={tag.id} className="rounded-lg bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-100">
+                          {tag.name}
+                        </span>
+                      ))}
+                      {item.tags && item.tags.length > 3 && (
+                        <span className="text-[9px] font-black text-slate-300">+{item.tags.length - 3}</span>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3">{item.file_count ?? 0}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{item.status || "-"}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {item.visibility || "-"}
+                  <td className="px-6 py-6 text-center">
+                    <div className="inline-flex flex-col items-center justify-center rounded-2xl bg-slate-50 px-4 py-2">
+                      <div className="text-sm font-black text-slate-900">{item.file_count ?? 0}</div>
+                      <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Files</div>
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
+                  <td className="px-6 py-6">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`h-1.5 w-1.5 rounded-full ${item.status === 'active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                        <span className={`text-[11px] font-black uppercase ${item.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <Eye size={12} />
+                        <span className="text-[10px] font-bold uppercase">{item.visibility}</span>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
+                  <td className="px-6 py-6">
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Clock size={12} />
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-bold text-slate-600">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</span>
+                        <span className="text-[9px] font-medium opacity-60">{item.created_at ? new Date(item.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ""}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-6 text-right">
+                    <div className="flex items-center justify-end gap-2">
                       <button
-                        className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-slate-300"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm transition-all hover:border-emerald-100 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90"
                         onClick={() => openCollectionEdit(item)}
+                        title="编辑合集"
                       >
-                        编辑合集
+                        <Edit3 size={16} />
                       </button>
                       <Link
-                        className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-slate-300"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm transition-all hover:border-blue-100 hover:bg-blue-50 hover:text-blue-600 active:scale-90"
                         href={`/admin/archive/collections/${item.id}/emojis`}
+                        title="编辑表情"
                       >
-                        编辑表情
+                        <ImageIcon size={16} />
                       </Link>
                       <button
-                        className="rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:border-red-300 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-rose-400 shadow-sm transition-all hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 active:scale-90 disabled:opacity-40"
                         onClick={() => hardDeleteCollection(item)}
                         disabled={deletingCollectionId === item.id}
+                        title="删除合集"
                       >
-                        {deletingCollectionId === item.id ? "删除中..." : "删除合集"}
+                        {deletingCollectionId === item.id ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
                       </button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {!collections.length && (
+              {!collections.length && !loading && (
                 <tr>
-                  <td colSpan={13} className="px-4 py-6 text-center text-sm text-slate-400">
-                    暂无合集
+                  <td colSpan={9} className="px-6 py-20 text-center">
+                    <div className="flex flex-col items-center justify-center opacity-20">
+                      <div className="h-20 w-20 flex items-center justify-center rounded-[2rem] bg-slate-100 text-slate-400">
+                        <FileText size={48} />
+                      </div>
+                      <p className="mt-4 text-lg font-black tracking-widest text-slate-400">暂无合集数据</p>
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-          <div>
-            第 {page} / {totalPages} 页
+        {/* 分页区域 */}
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-6 px-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 items-center justify-center rounded-2xl bg-slate-50 px-4 text-xs font-black text-slate-500">
+              第 {page} / {totalPages} 页
+            </div>
+            <div className="h-1 w-1 rounded-full bg-slate-200" />
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Page Navigation</div>
           </div>
-          <div className="flex items-center gap-2">
+          
+          <div className="flex items-center gap-3">
             <button
-              className="rounded-xl border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:border-slate-300"
+              className="group flex h-11 items-center gap-2 rounded-2xl border-2 border-slate-100 bg-white px-6 text-sm font-black text-slate-600 transition-all hover:border-slate-200 hover:bg-slate-50 disabled:opacity-40 active:scale-95"
               onClick={handlePrev}
               disabled={page <= 1}
             >
+              <ChevronDown size={18} className="rotate-90 transition-transform group-hover:-translate-x-1" />
               上一页
             </button>
             <button
-              className="rounded-xl border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:border-slate-300"
+              className="group flex h-11 items-center gap-2 rounded-2xl border-2 border-slate-100 bg-white px-6 text-sm font-black text-slate-600 transition-all hover:border-slate-200 hover:bg-slate-50 disabled:opacity-40 active:scale-95"
               onClick={handleNext}
               disabled={page >= totalPages}
             >
               下一页
+              <ChevronDown size={18} className="-rotate-90 transition-transform group-hover:translate-x-1" />
             </button>
           </div>
         </div>

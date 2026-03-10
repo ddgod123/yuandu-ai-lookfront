@@ -481,9 +481,14 @@ export default function Page() {
             const displayTitle =
               titleValue && titleValue.length <= 18 ? titleValue : fileName;
             const isGif = isGifEmoji(emoji, previewUrl);
-            const staticUrl = isGif ? buildStaticPreview(previewUrl) : previewUrl;
+            const staticUrl = isGif ? buildStaticPreview(previewUrl) : "";
             const shouldPlay = activePreviewId === emoji.id;
-            const displayUrl = isGif ? (shouldPlay ? previewUrl : staticUrl) : previewUrl;
+            // 私有空间签名 URL 无法直接拼接静态预览参数时，回退到原图，避免出现“无预览”。
+            const displayUrl = isGif
+              ? shouldPlay
+                ? previewUrl
+                : staticUrl || previewUrl
+              : previewUrl;
 
             return (
               <div

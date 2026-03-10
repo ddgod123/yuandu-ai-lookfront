@@ -55,6 +55,7 @@ const NAV = [
     items: [
       { label: "用户列表", href: "/admin/users" },
       { label: "兑换码", href: "/admin/redeem-codes" },
+      { label: "风控防刷", href: "/admin/users/security" },
       { label: "角色权限", href: "/admin/roles" },
     ],
   },
