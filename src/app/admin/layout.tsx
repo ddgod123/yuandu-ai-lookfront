@@ -23,6 +23,19 @@ const NAV = [
     ],
   },
   {
+    title: "用户创作",
+    items: [
+      { label: "创作任务", href: "/admin/users/video-jobs" },
+      { label: "反馈链路完整性", href: "/admin/users/feedback-integrity?format=all" },
+      { label: "样本基线对比", href: "/admin/users/gif-baselines" },
+      { label: "SQL巡检(GIF)", href: "/admin/users/gif-sql-health" },
+      { label: "任务巡检", href: "/admin/users/video-job-health" },
+      { label: "高光任务看板", href: "/admin/users/highlight-jobs" },
+      { label: "视频转图质量", href: "/admin/settings/video-quality" },
+      { label: "算力账户", href: "/admin/users/compute-accounts" },
+    ],
+  },
+  {
     title: "主题与分类",
     items: [
       { label: "主题管理", href: "/admin/taxonomy/themes" },
@@ -143,18 +156,23 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-6 py-2 space-y-6 scrollbar-hide">
+        <nav className="scrollbar-hide flex-1 space-y-5 overflow-y-auto px-6 py-2">
           {NAV.map((group) => {
             const isCollapsed = collapsedGroups[group.title];
+            const groupActive = group.items.some((item) => pathname.startsWith(item.href));
             return (
               <div key={group.title}>
                 <button 
                   onClick={() => toggleGroup(group.title)}
-                  className="group mb-2 flex w-full items-center justify-between px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-600 transition-colors"
+                  className={`group mb-2 flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors ${
+                    groupActive
+                      ? "bg-emerald-50/70 text-emerald-700"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
                 >
-                  <span>{group.title}</span>
+                  <span className="text-[18px] font-semibold tracking-tight">{group.title}</span>
                   <svg 
-                    className={`h-3 w-3 transition-transform duration-200 ${isCollapsed ? "-rotate-90" : "rotate-0"}`}
+                    className={`h-4 w-4 transition-transform duration-200 ${isCollapsed ? "-rotate-90" : "rotate-0"}`}
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                   >
                     <path d="m6 9 6 6 6-6"/>

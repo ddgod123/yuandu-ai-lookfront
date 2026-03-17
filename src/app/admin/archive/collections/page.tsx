@@ -21,7 +21,8 @@ import {
   FileText,
   Star,
   ArrowUpCircle,
-  List
+  List,
+  Download
 } from "lucide-react";
 
 type Collection = {
@@ -40,6 +41,7 @@ type Collection = {
   file_count?: number;
   is_featured?: boolean;
   is_pinned?: boolean;
+  is_sample?: boolean;
   pinned_at?: string | null;
   visibility?: string;
   status?: string;
@@ -108,6 +110,7 @@ export default function Page() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured">("all");
+  const [sampleFilter, setSampleFilter] = useState<"all" | "sample">("all");
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,11 +127,15 @@ export default function Page() {
   const [collectionThemeId, setCollectionThemeId] = useState<number>(0);
   const [collectionFeatured, setCollectionFeatured] = useState(false);
   const [collectionPinned, setCollectionPinned] = useState(false);
+  const [collectionSample, setCollectionSample] = useState(false);
   const [collectionTagIds, setCollectionTagIds] = useState<number[]>([]);
   const [collectionTagFilter, setCollectionTagFilter] = useState("");
   const [collectionTagGroupFilter, setCollectionTagGroupFilter] = useState<number>(0);
   const [collectionSaving, setCollectionSaving] = useState(false);
   const [deletingCollectionId, setDeletingCollectionId] = useState<number | null>(null);
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<number[]>([]);
+  const [batchSampleSaving, setBatchSampleSaving] = useState(false);
+  const [exportingSamples, setExportingSamples] = useState(false);
 
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
   const [coverQuery, setCoverQuery] = useState("");
@@ -172,6 +179,11 @@ export default function Page() {
 
   const treeItems = useMemo(() => buildTree(categories), [categories]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
+  const selectedIdSet = useMemo(() => new Set(selectedCollectionIds), [selectedCollectionIds]);
+  const allCurrentPageSelected = useMemo(
+    () => collections.length > 0 && collections.every((item) => selectedIdSet.has(item.id)),
+    [collections, selectedIdSet]
+  );
   const categoryMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const cat of categories) {
@@ -331,7 +343,8 @@ export default function Page() {
     sizeValue = pageSize,
     topValue = selectedTopId,
     childValue = selectedChildId,
-    featuredValue = featuredFilter
+    featuredValue = featuredFilter,
+    sampleValue = sampleFilter
   ) => {
     setLoading(true);
     setError(null);
@@ -354,6 +367,9 @@ export default function Page() {
       }
       if (featuredValue === "featured") {
         query.set("is_featured", "1");
+      }
+      if (sampleValue === "sample") {
+        query.set("is_sample", "1");
       }
       const res = await fetchWithAuth(`${API_BASE}/api/collections?${query.toString()}`);
       if (!res.ok) throw new Error(await res.text());
@@ -420,12 +436,34 @@ export default function Page() {
 
   // 仅根据筛选条件和分页变化拉取列表
   useEffect(() => {
-    loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter);
+    loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, selectedTopId, selectedChildId, featuredFilter, childCategoryMap]);
+  }, [page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter, childCategoryMap]);
+
+  useEffect(() => {
+    setSelectedCollectionIds((prev) =>
+      prev.filter((id) => collections.some((item) => item.id === id))
+    );
+  }, [collections]);
 
   const handlePrev = () => setPage((p) => Math.max(1, p - 1));
   const handleNext = () => setPage((p) => Math.min(totalPages, p + 1));
+  const toggleSelectAllCurrentPage = (checked: boolean) => {
+    if (!checked) {
+      setSelectedCollectionIds([]);
+      return;
+    }
+    setSelectedCollectionIds(collections.map((item) => item.id));
+  };
+  const toggleSelectCollection = (id: number, checked: boolean) => {
+    setSelectedCollectionIds((prev) => {
+      if (checked) {
+        if (prev.includes(id)) return prev;
+        return [...prev, id];
+      }
+      return prev.filter((item) => item !== id);
+    });
+  };
 
   const openCollectionEdit = (collection: Collection) => {
     setCollectionEditing(collection);
@@ -439,6 +477,7 @@ export default function Page() {
     setCollectionThemeId(collection.theme_id || 0);
     setCollectionFeatured(Boolean(collection.is_featured));
     setCollectionPinned(Boolean(collection.is_pinned));
+    setCollectionSample(Boolean(collection.is_sample));
     setCollectionTagIds(collection.tags?.map((tag) => tag.id) || []);
     setCollectionTagFilter("");
     setCollectionTagGroupFilter(0);
@@ -487,12 +526,13 @@ export default function Page() {
             theme_id: collectionThemeId || null,
             is_featured: collectionFeatured,
             is_pinned: collectionPinned,
+            is_sample: collectionSample,
             tag_ids: collectionTagIds,
           }),
         }
       );
       if (!res.ok) throw new Error(await res.text());
-      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter);
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
       setCollectionEditOpen(false);
       setCollectionEditing(null);
     } catch (err: unknown) {
@@ -503,6 +543,54 @@ export default function Page() {
       setError(message);
     } finally {
       setCollectionSaving(false);
+    }
+  };
+
+  const batchUpdateSampleFlag = async (isSample: boolean) => {
+    if (!selectedCollectionIds.length || batchSampleSaving) return;
+    setBatchSampleSaving(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/batch-sample`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection_ids: selectedCollectionIds,
+          is_sample: isSample,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+      setSelectedCollectionIds([]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "批量更新样本状态失败";
+      setError(message);
+    } finally {
+      setBatchSampleSaving(false);
+    }
+  };
+
+  const exportSampleCollections = async () => {
+    if (exportingSamples) return;
+    setExportingSamples(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/samples/export.csv?is_sample=1`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `sample_collections_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出样本合集失败";
+      setError(message);
+    } finally {
+      setExportingSamples(false);
     }
   };
 
@@ -533,7 +621,7 @@ export default function Page() {
       if (nextPage !== page) {
         setPage(nextPage);
       }
-      await loadCollections(nextPage, pageSize, selectedTopId, selectedChildId, featuredFilter);
+      await loadCollections(nextPage, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "删除失败";
       setError(message);
@@ -619,7 +707,7 @@ export default function Page() {
           <button
             className="group flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-slate-200 transition-all hover:bg-emerald-600 hover:shadow-emerald-100 active:scale-95 disabled:opacity-60"
             onClick={() =>
-              loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter)
+              loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter)
             }
             disabled={loading}
           >
@@ -761,6 +849,23 @@ export default function Page() {
 
             <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <TagIcon size={14} /> 样本筛选
+              </div>
+              <select
+                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                value={sampleFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setSampleFilter(e.target.value as "all" | "sample");
+                }}
+              >
+                <option value="all">显示全部</option>
+                <option value="sample">仅看样本</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
                 <List size={14} /> 每页
               </div>
               <select
@@ -776,7 +881,39 @@ export default function Page() {
                 <option value={50}>50 条</option>
               </select>
             </div>
+
+            <button
+              type="button"
+              className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={exportSampleCollections}
+              disabled={exportingSamples}
+            >
+              <Download size={14} />
+              {exportingSamples ? "导出中..." : "导出样本CSV"}
+            </button>
           </div>
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2 px-2">
+          <div className="rounded-xl bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-600">
+            已选 {selectedCollectionIds.length} 条
+          </div>
+          <button
+            type="button"
+            className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchSampleSaving}
+            onClick={() => batchUpdateSampleFlag(true)}
+          >
+            {batchSampleSaving ? "处理中..." : "批量标记样本"}
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchSampleSaving}
+            onClick={() => batchUpdateSampleFlag(false)}
+          >
+            批量取消样本
+          </button>
         </div>
 
         {/* 表格区域 */}
@@ -785,6 +922,14 @@ export default function Page() {
             <table className="min-w-[1220px] w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-100 bg-white">
+                <th className="sticky top-0 z-20 bg-white px-4 py-4 text-center">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={allCurrentPageSelected}
+                    onChange={(e) => toggleSelectAllCurrentPage(e.target.checked)}
+                  />
+                </th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">ID</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">合集信息</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">封面图</th>
@@ -799,6 +944,14 @@ export default function Page() {
             <tbody className="divide-y divide-slate-50">
               {collections.map((item) => (
                 <tr key={item.id} className="group transition-colors hover:bg-slate-50/50">
+                  <td className="px-4 py-6 text-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300"
+                      checked={selectedIdSet.has(item.id)}
+                      onChange={(e) => toggleSelectCollection(item.id, e.target.checked)}
+                    />
+                  </td>
                   <td className="px-6 py-6 text-xs font-bold text-slate-400">#{item.id}</td>
                   <td className="px-6 py-6">
                     <div className="max-w-[200px] space-y-1">
@@ -861,6 +1014,11 @@ export default function Page() {
                       {item.is_pinned && (
                         <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-600 ring-1 ring-emerald-100">
                           <ArrowUpCircle size={10} /> 置顶
+                        </span>
+                      )}
+                      {item.is_sample && (
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-600 ring-1 ring-violet-100">
+                          <TagIcon size={10} /> 样本
                         </span>
                       )}
                       {item.tags?.slice(0, 3).map((tag) => (
@@ -932,7 +1090,7 @@ export default function Page() {
               ))}
               {!collections.length && !loading && (
                 <tr>
-                  <td colSpan={9} className="px-6 py-20 text-center">
+                  <td colSpan={10} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center opacity-20">
                       <div className="h-20 w-20 flex items-center justify-center rounded-[2rem] bg-slate-100 text-slate-400">
                         <FileText size={48} />
@@ -1174,7 +1332,7 @@ export default function Page() {
               )}
             </div>
             <div className="md:col-span-2">
-              <div className="text-xs text-slate-400">推荐 / 置顶</div>
+              <div className="text-xs text-slate-400">推荐 / 置顶 / 样本</div>
               <div className="mt-2 flex flex-wrap gap-3">
                 <label className="flex items-center gap-2 text-xs text-slate-600">
                   <input
@@ -1193,6 +1351,15 @@ export default function Page() {
                     onChange={(e) => setCollectionPinned(e.target.checked)}
                   />
                   置顶
+                </label>
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={collectionSample}
+                    onChange={(e) => setCollectionSample(e.target.checked)}
+                  />
+                  样本
                 </label>
               </div>
             </div>

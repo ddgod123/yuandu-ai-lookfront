@@ -84,6 +84,47 @@ type DashboardQueue = {
   activeBlacklist: number;
 };
 
+type WorkerQueueInfoResponse = {
+  name?: string;
+  pending?: number;
+  active?: number;
+  scheduled?: number;
+  retry?: number;
+  latency_seconds?: number;
+};
+
+type WorkerHealthResponse = {
+  health?: string;
+  redis_reachable?: boolean;
+  queue_name?: string;
+  servers_total?: number;
+  servers_active?: number;
+  queue?: WorkerQueueInfoResponse;
+  stale_queued_jobs?: number;
+  alerts?: string[];
+  checked_at?: string;
+  start_enabled?: boolean;
+  start_hint?: string;
+};
+
+type DashboardWorkerHealth = {
+  health: "green" | "yellow" | "red" | "unknown";
+  redisReachable: boolean;
+  queueName: string;
+  serversTotal: number;
+  serversActive: number;
+  pending: number;
+  active: number;
+  retry: number;
+  scheduled: number;
+  latencySeconds: number;
+  staleQueuedJobs: number;
+  alerts: string[];
+  checkedAt: string;
+  startEnabled: boolean;
+  startHint: string;
+};
+
 const EMPTY_SUMMARY: DashboardSummary = {
   statDate: "",
   todayNewEmojis: 0,
@@ -102,6 +143,24 @@ const EMPTY_QUEUE: DashboardQueue = {
   activeBlacklist: 0,
 };
 
+const EMPTY_WORKER_HEALTH: DashboardWorkerHealth = {
+  health: "unknown",
+  redisReachable: false,
+  queueName: "media",
+  serversTotal: 0,
+  serversActive: 0,
+  pending: 0,
+  active: 0,
+  retry: 0,
+  scheduled: 0,
+  latencySeconds: 0,
+  staleQueuedJobs: 0,
+  alerts: [],
+  checkedAt: "",
+  startEnabled: false,
+  startHint: "",
+};
+
 async function fetchJSON<T>(url: string): Promise<T> {
   const res = await fetchWithAuth(url);
   if (!res.ok) {
@@ -113,10 +172,13 @@ async function fetchJSON<T>(url: string): Promise<T> {
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary>(EMPTY_SUMMARY);
   const [queue, setQueue] = useState<DashboardQueue>(EMPTY_QUEUE);
+  const [workerHealth, setWorkerHealth] = useState<DashboardWorkerHealth>(EMPTY_WORKER_HEALTH);
   const [topCollections, setTopCollections] = useState<CollectionItem[]>([]);
   const [trendItems, setTrendItems] = useState<DashboardTrendPoint[]>([]);
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
+  const [startingWorker, setStartingWorker] = useState(false);
+  const [workerActionMessage, setWorkerActionMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const loadDashboard = useCallback(async () => {
@@ -135,6 +197,7 @@ export default function DashboardPage() {
         securityResult,
         collectionResult,
         trendResult,
+        workerResult,
       ] = await Promise.allSettled([
         fetchJSON<TodayStatsResponse>(`${API_BASE}/api/stats/today`),
         fetchJSON<HomeStatsResponse>(`${API_BASE}/api/stats/home`),
@@ -153,6 +216,7 @@ export default function DashboardPage() {
           `${API_BASE}/api/collections?page=1&page_size=5&sort=download_count&order=desc&status=active&visibility=public`
         ),
         fetchJSON<DashboardTrendResponse>(`${API_BASE}/api/admin/dashboard/trends?days=7`),
+        fetchJSON<WorkerHealthResponse>(`${API_BASE}/api/admin/system/worker-health`),
       ]);
 
       const todayData =
@@ -181,6 +245,10 @@ export default function DashboardPage() {
           : (failedParts.push("热门合集"), {});
       const trendData =
         trendResult.status === "fulfilled" ? trendResult.value : (failedParts.push("7天趋势"), {});
+      const workerData =
+        workerResult.status === "fulfilled"
+          ? workerResult.value
+          : (failedParts.push("Worker健康"), {});
 
       const activeThemes = Array.isArray(themeData)
         ? themeData.filter((item) => {
@@ -220,9 +288,26 @@ export default function DashboardPage() {
             }))
           : []
       );
+      setWorkerHealth({
+        health: normalizeWorkerHealth(workerData.health),
+        redisReachable: Boolean(workerData.redis_reachable),
+        queueName: (workerData.queue?.name || workerData.queue_name || "media").trim() || "media",
+        serversTotal: Number(workerData.servers_total || 0),
+        serversActive: Number(workerData.servers_active || 0),
+        pending: Number(workerData.queue?.pending || 0),
+        active: Number(workerData.queue?.active || 0),
+        retry: Number(workerData.queue?.retry || 0),
+        scheduled: Number(workerData.queue?.scheduled || 0),
+        latencySeconds: Number(workerData.queue?.latency_seconds || 0),
+        staleQueuedJobs: Number(workerData.stale_queued_jobs || 0),
+        alerts: Array.isArray(workerData.alerts) ? workerData.alerts.filter(Boolean).slice(0, 3) : [],
+        checkedAt: (workerData.checked_at || "").trim(),
+        startEnabled: Boolean(workerData.start_enabled),
+        startHint: (workerData.start_hint || "").trim(),
+      });
       setFetchedAt(new Date().toISOString());
 
-      if (failedParts.length >= 9) {
+      if (failedParts.length >= 10) {
         setError("仪表盘数据加载失败，请稍后重试");
       } else if (failedParts.length > 0) {
         setError(`部分数据未加载成功：${failedParts.join("、")}`);
@@ -238,7 +323,46 @@ export default function DashboardPage() {
     loadDashboard();
   }, [loadDashboard]);
 
+  const handleStartWorker = useCallback(async () => {
+    if (startingWorker) return;
+    setStartingWorker(true);
+    setWorkerActionMessage("");
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-start`, {
+        method: "POST",
+      });
+      let payload: { message?: string; error?: string } = {};
+      try {
+        payload = (await res.json()) as { message?: string; error?: string };
+      } catch {
+        payload = {};
+      }
+      if (!res.ok) {
+        throw new Error((payload.error || "").trim() || `HTTP ${res.status}`);
+      }
+      setWorkerActionMessage((payload.message || "Worker 启动命令已执行").trim());
+      await loadDashboard();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "未知错误";
+      setWorkerActionMessage(`启动失败：${message}`);
+    } finally {
+      setStartingWorker(false);
+    }
+  }, [loadDashboard, startingWorker]);
+
   const needsAttention = queue.uploadFailed + queue.blockedLast24h + queue.rateLimitedLast24h;
+  const workerHealthMeta = useMemo(() => {
+    switch (workerHealth.health) {
+      case "green":
+        return { label: "健康", className: "bg-emerald-50 text-emerald-600 border-emerald-200" };
+      case "yellow":
+        return { label: "亚健康", className: "bg-amber-50 text-amber-700 border-amber-200" };
+      case "red":
+        return { label: "异常", className: "bg-rose-50 text-rose-600 border-rose-200" };
+      default:
+        return { label: "未知", className: "bg-slate-100 text-slate-500 border-slate-200" };
+    }
+  }, [workerHealth.health]);
   const maxDownload = useMemo(
     () =>
       topCollections.reduce(
@@ -474,6 +598,78 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-base font-bold text-slate-900">Worker 服务健康</div>
+            <div className="mt-1 text-xs text-slate-500">
+              Redis {workerHealth.redisReachable ? "已连接" : "未连接"} · 队列 {workerHealth.queueName}
+              {workerHealth.checkedAt ? ` · 更新于 ${formatDateTime(workerHealth.checkedAt)}` : ""}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${workerHealthMeta.className}`}
+            >
+              {workerHealthMeta.label}
+            </span>
+            <button
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={handleStartWorker}
+              disabled={!workerHealth.startEnabled || startingWorker}
+              title={workerHealth.startEnabled ? "执行 WORKER_START_COMMAND" : workerHealth.startHint}
+            >
+              {startingWorker ? "启动中..." : "一键启动 Worker"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <div className="text-xs text-slate-500">在线 Worker</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">
+              {formatNumber(workerHealth.serversActive)} / {formatNumber(workerHealth.serversTotal)}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <div className="text-xs text-slate-500">队列积压</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">{formatNumber(workerHealth.pending)}</div>
+            <div className="mt-1 text-[11px] text-slate-400">
+              active {formatNumber(workerHealth.active)} · retry {formatNumber(workerHealth.retry)}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <div className="text-xs text-slate-500">排队超时任务</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">
+              {formatNumber(workerHealth.staleQueuedJobs)}
+            </div>
+            <div className="mt-1 text-[11px] text-slate-400">
+              latency {Math.max(0, Math.round(workerHealth.latencySeconds))}s
+            </div>
+          </div>
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <div className="text-xs text-slate-500">调度中</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">{formatNumber(workerHealth.scheduled)}</div>
+            <div className="mt-1 text-[11px] text-slate-400">
+              {workerHealth.startEnabled
+                ? "已启用一键启动"
+                : workerHealth.startHint || "未启用一键启动"}
+            </div>
+          </div>
+        </div>
+
+        {workerActionMessage && (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            {workerActionMessage}
+          </div>
+        )}
+        {workerHealth.alerts.length > 0 && (
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            {workerHealth.alerts.join("；")}
+          </div>
+        )}
+      </div>
+
       <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900">近 7 天趋势</h3>
@@ -624,6 +820,14 @@ function formatDateTime(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
   return parsed.toLocaleString("zh-CN", { hour12: false });
+}
+
+function normalizeWorkerHealth(value?: string): "green" | "yellow" | "red" | "unknown" {
+  const normalized = (value || "").trim().toLowerCase();
+  if (normalized === "green" || normalized === "yellow" || normalized === "red") {
+    return normalized;
+  }
+  return "unknown";
 }
 
 function TrendMiniBars({
