@@ -86,6 +86,7 @@ type AdminVideoJobArtifact = {
   size_bytes?: number;
   width?: number;
   height?: number;
+  metadata?: Record<string, unknown>;
   created_at?: string;
 };
 
@@ -160,9 +161,161 @@ type AdminVideoJobDetailResponse = {
   gif_candidates?: AdminVideoJobGIFCandidate[];
   ai_usages?: AdminVideoJobAIUsage[];
   ai_gif_directives?: AdminVideoJobAIGIFDirective[];
+  ai_gif_proposals?: AdminVideoJobAIGIFProposal[];
   ai_gif_reviews?: AdminVideoJobAIGIFReview[];
   ai_gif_review_status_counts?: Record<string, number>;
   ai_gif_review_status_filter?: string[];
+};
+
+type AdminVideoJobGIFEvaluation = {
+  id: number;
+  output_id?: number;
+  proposal_id?: number;
+  candidate_id?: number;
+  object_key?: string;
+  preview_url?: string;
+  window_start_ms?: number;
+  window_end_ms?: number;
+  emotion_score?: number;
+  clarity_score?: number;
+  motion_score?: number;
+  loop_score?: number;
+  efficiency_score?: number;
+  overall_score?: number;
+  feature_json?: Record<string, unknown>;
+  created_at?: string;
+};
+
+type AdminVideoJobGIFFeedback = {
+  id: number;
+  output_id?: number;
+  user_id?: number;
+  action?: string;
+  weight?: number;
+  scene_tag?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+};
+
+type AdminVideoJobGIFRerenderRecord = {
+  review_id?: number;
+  output_id?: number;
+  proposal_id?: number;
+  proposal_rank?: number;
+  recommendation?: string;
+  diagnostic?: string;
+  suggested_action?: string;
+  trigger?: string;
+  actor_id?: number;
+  actor_role?: string;
+  output_object_key?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+};
+
+type AdminVideoJobGIFAuditChainSummary = {
+  candidate_count?: number;
+  directive_count?: number;
+  proposal_count?: number;
+  output_count?: number;
+  evaluation_count?: number;
+  review_count?: number;
+  feedback_count?: number;
+  rerender_count?: number;
+  ai_usage_count?: number;
+  event_count?: number;
+  hard_gate_blocked_count?: number;
+  latest_recommendation?: string;
+  latest_recommendation_at?: string;
+  review_status_counts?: Record<string, number>;
+  policy_version?: string;
+  experiment_bucket?: string;
+  pipeline_mode?: string;
+};
+
+type AdminVideoJobGIFAuditChainResponse = {
+  job?: AdminVideoJobItem;
+  summary?: AdminVideoJobGIFAuditChainSummary;
+  events?: AdminVideoJobEvent[];
+  outputs?: AdminVideoJobArtifact[];
+  gif_candidates?: AdminVideoJobGIFCandidate[];
+  ai_usages?: AdminVideoJobAIUsage[];
+  ai_gif_directives?: AdminVideoJobAIGIFDirective[];
+  ai_gif_proposals?: AdminVideoJobAIGIFProposal[];
+  ai_gif_reviews?: AdminVideoJobAIGIFReview[];
+  gif_evaluations?: AdminVideoJobGIFEvaluation[];
+  feedbacks?: AdminVideoJobGIFFeedback[];
+  rerenders?: AdminVideoJobGIFRerenderRecord[];
+  review_status_filter?: string[];
+};
+
+type AdminVideoJobGIFReviewDecisionResponse = {
+  job_id?: number;
+  request_id?: string;
+  applied?: number;
+  skipped?: number;
+};
+
+type AdminVideoJobGIFBatchRerenderItemResult = {
+  proposal_id?: number;
+  proposal_rank?: number;
+  status?: string;
+  error_code?: string;
+  error?: string;
+  result?: {
+    output_id?: number;
+    output_object_key?: string;
+    proposal_id?: number;
+    proposal_rank?: number;
+    cost_delta_cny?: number;
+    zip_invalidated?: boolean;
+  };
+};
+
+type AdminVideoJobGIFBatchRerenderResponse = {
+  job_id?: number;
+  request_id?: string;
+  strategy?: string;
+  force?: boolean;
+  total?: number;
+  succeeded?: number;
+  failed?: number;
+  idempotent?: boolean;
+  message?: string;
+  items?: AdminVideoJobGIFBatchRerenderItemResult[];
+};
+
+type ManualGIFReviewDecisionBatchItem = {
+  output_id: number;
+  proposal_id?: number;
+  decision: string;
+  reason?: string;
+  notes?: string;
+};
+
+type ManualGIFReviewDecisionBatchParseResult = {
+  items: ManualGIFReviewDecisionBatchItem[];
+  errors: string[];
+};
+
+type AdminVideoJobAIGIFProposal = {
+  id: number;
+  proposal_rank?: number;
+  start_sec?: number;
+  end_sec?: number;
+  duration_sec?: number;
+  base_score?: number;
+  proposal_reason?: string;
+  semantic_tags?: string[];
+  expected_value_level?: string;
+  standalone_confidence?: number;
+  loop_friendliness_hint?: number;
+  status?: string;
+  provider?: string;
+  model?: string;
+  prompt_version?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
 };
 
 type AdminVideoJobAIGIFReview = {
@@ -210,6 +363,29 @@ type AdminVideoJobStageDuration = {
   count: number;
   avg_sec: number;
   p95_sec: number;
+};
+
+type AdminVideoJobGIFSubStageAnomalyStat = {
+  sub_stage: string;
+  sub_stage_label: string;
+  samples: number;
+  done_jobs: number;
+  running_jobs: number;
+  pending_jobs: number;
+  degraded_jobs: number;
+  failed_jobs: number;
+  anomaly_jobs: number;
+  anomaly_rate: number;
+  top_reason?: string;
+  top_reason_count?: number;
+};
+
+type AdminVideoJobGIFSubStageAnomalyReasonStat = {
+  sub_stage: string;
+  sub_stage_label: string;
+  status: string;
+  reason: string;
+  count: number;
 };
 
 type AdminVideoJobFormatStat = {
@@ -416,6 +592,7 @@ type ToastRetryAction =
   | { kind: "export_feedback_integrity_report" }
   | { kind: "export_feedback_integrity_trend_report" }
   | { kind: "export_feedback_integrity_anomalies_report" }
+  | { kind: "export_gif_sub_stage_anomalies_report" }
   | { kind: "export_blocked_feedback_report" }
   | { kind: "export_sample_baseline_diff" };
 
@@ -612,6 +789,9 @@ type AdminVideoJobOverviewResponse = {
   stage_counts?: AdminVideoJobSimpleCount[];
   top_failures?: AdminVideoJobFailureReason[];
   stage_durations?: AdminVideoJobStageDuration[];
+  gif_sub_stage_anomaly_jobs_window?: number;
+  gif_sub_stage_anomaly_overview?: AdminVideoJobGIFSubStageAnomalyStat[];
+  gif_sub_stage_anomaly_reasons?: AdminVideoJobGIFSubStageAnomalyReasonStat[];
   format_stats_24h?: AdminVideoJobFormatStat[];
 };
 
@@ -721,6 +901,25 @@ type GIFPipelineSubStageRow = {
   error?: string;
 };
 
+type GIFRenderSelectionSnapshot = {
+  enabled: boolean;
+  version: string;
+  duration_tier: string;
+  candidate_pool_count: number;
+  eligible_candidate_count: number;
+  selected_window_count: number;
+  base_max_outputs: number;
+  tier_max_outputs: number;
+  confidence_threshold: number;
+  estimated_budget_limit_kb: number;
+  estimated_selected_kb: number;
+  dropped_low_confidence: number;
+  dropped_size_budget: number;
+  dropped_output_limit: number;
+  fallback_applied: boolean;
+  fallback_reason: string;
+};
+
 type SampleBaselineDiffDecisionState = "insufficient_data" | "hold" | "scale_up" | "scale_down";
 
 type SampleBaselineDiffDecision = {
@@ -761,6 +960,12 @@ const GIF_PIPELINE_STAGE_LABEL: Record<string, string> = {
   planning: "Planning（AI2）",
   scoring: "Scoring（评分）",
   reviewing: "Reviewing（AI3）",
+};
+const GIF_SUB_STAGE_QUICK_TO_STAGE: Record<string, string> = {
+  sub_stage_briefing_anomaly: "briefing",
+  sub_stage_planning_anomaly: "planning",
+  sub_stage_scoring_anomaly: "scoring",
+  sub_stage_reviewing_anomaly: "reviewing",
 };
 const AI_STAGE_LABEL: Record<string, string> = {
   director: "AI1 Prompt Director",
@@ -1134,6 +1339,132 @@ function parseNumberValue(value: unknown): number | undefined {
   return undefined;
 }
 
+function parseIntegerListInput(raw: string) {
+  const text = (raw || "").trim();
+  if (!text) return [] as number[];
+  const tokens = text.split(/[,\s，]+/).map((item) => item.trim()).filter(Boolean);
+  if (!tokens.length) return [] as number[];
+  const seen = new Set<number>();
+  const rows: number[] = [];
+  for (const token of tokens) {
+    const value = Number(token);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    const n = Math.trunc(value);
+    if (seen.has(n)) continue;
+    seen.add(n);
+    rows.push(n);
+  }
+  return rows;
+}
+
+function parseManualGIFReviewDecisionBatchInput(raw: string): ManualGIFReviewDecisionBatchParseResult {
+  const text = (raw || "").trim();
+  if (!text) return { items: [], errors: [] };
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+  if (!lines.length) return { items: [], errors: [] };
+
+  const normalizedHeaderKey = (value: string) =>
+    value.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  const splitLine = (line: string) => line.split(/[,\t]/).map((token) => token.trim());
+  const firstTokens = splitLine(lines[0]).map((token) => normalizedHeaderKey(token));
+  const headerMode = firstTokens.includes("output_id") && firstTokens.includes("decision");
+  const headerMap = new Map<string, number>();
+  if (headerMode) {
+    for (let i = 0; i < firstTokens.length; i += 1) {
+      const key = firstTokens[i];
+      if (!key) continue;
+      if (!headerMap.has(key)) headerMap.set(key, i);
+    }
+  }
+
+  const out: ManualGIFReviewDecisionBatchItem[] = [];
+  const errors: string[] = [];
+  const startLine = headerMode ? 1 : 0;
+  for (let idx = startLine; idx < lines.length; idx += 1) {
+    const rawLine = lines[idx];
+    const tokens = splitLine(rawLine);
+    const lineNo = idx + 1;
+    if (!tokens.length) continue;
+
+    const pick = (name: string, fallbackIndex: number) => {
+      const mapped = headerMap.get(name);
+      if (typeof mapped === "number") return tokens[mapped] || "";
+      return tokens[fallbackIndex] || "";
+    };
+
+    const outputRaw = pick("output_id", 0);
+    const proposalRaw = pick("proposal_id", 1);
+    const decisionRaw = pick("decision", 2);
+    const reasonRaw = pick("reason", 3);
+    const notesRaw = pick("notes", 4);
+
+    const outputID = Number(outputRaw);
+    if (!Number.isFinite(outputID) || outputID <= 0) {
+      errors.push(`第 ${lineNo} 行 output_id 非法`);
+      continue;
+    }
+
+    const decision = normalizeReviewStatus(decisionRaw);
+    if (!decision || decision === "all") {
+      errors.push(`第 ${lineNo} 行 decision 非法（支持 deliver/keep_internal/reject/need_manual_review）`);
+      continue;
+    }
+
+    const proposalID = Number(proposalRaw);
+    const item: ManualGIFReviewDecisionBatchItem = {
+      output_id: Math.trunc(outputID),
+      decision,
+    };
+    if (Number.isFinite(proposalID) && proposalID > 0) {
+      item.proposal_id = Math.trunc(proposalID);
+    }
+    if (reasonRaw) item.reason = reasonRaw;
+    if (notesRaw) item.notes = notesRaw;
+    out.push(item);
+  }
+
+  const seenOutput = new Set<number>();
+  for (const item of out) {
+    if (seenOutput.has(item.output_id)) {
+      errors.push(`output_id ${item.output_id} 重复`);
+      break;
+    }
+    seenOutput.add(item.output_id);
+  }
+  return { items: out, errors };
+}
+
+function csvEscapeValue(value: unknown) {
+  if (value === null || typeof value === "undefined") return "";
+  const text = String(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
+function buildCSVText(headers: string[], rows: Array<Record<string, unknown>>) {
+  const lines: string[] = [];
+  lines.push(headers.map(csvEscapeValue).join(","));
+  for (const row of rows) {
+    lines.push(headers.map((key) => csvEscapeValue(row[key])).join(","));
+  }
+  return `\uFEFF${lines.join("\n")}`;
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 function parseHighlightSelection(raw: unknown): HighlightFeedbackSelection | null {
   if (!raw || typeof raw !== "object") return null;
   const payload = raw as Record<string, unknown>;
@@ -1272,6 +1603,34 @@ function resolveGIFPipelineSubStages(metrics?: Record<string, unknown> | null): 
   return rows;
 }
 
+function resolveGIFRenderSelection(metrics?: Record<string, unknown> | null): GIFRenderSelectionSnapshot | null {
+  const raw = metrics?.gif_render_selection_v1;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const payload = raw as Record<string, unknown>;
+  const enabled = parseBooleanValue(payload.enabled);
+  const version = typeof payload.version === "string" ? payload.version.trim() : "";
+  const durationTier = typeof payload.duration_tier === "string" ? payload.duration_tier.trim().toLowerCase() : "";
+  const fallbackReason = typeof payload.fallback_reason === "string" ? payload.fallback_reason.trim() : "";
+  return {
+    enabled,
+    version,
+    duration_tier: durationTier,
+    candidate_pool_count: Number(parseNumberValue(payload.candidate_pool_count) || 0),
+    eligible_candidate_count: Number(parseNumberValue(payload.eligible_candidate_count) || 0),
+    selected_window_count: Number(parseNumberValue(payload.selected_window_count) || 0),
+    base_max_outputs: Number(parseNumberValue(payload.base_max_outputs) || 0),
+    tier_max_outputs: Number(parseNumberValue(payload.tier_max_outputs) || 0),
+    confidence_threshold: Number(parseNumberValue(payload.confidence_threshold) || 0),
+    estimated_budget_limit_kb: Number(parseNumberValue(payload.estimated_budget_limit_kb) || 0),
+    estimated_selected_kb: Number(parseNumberValue(payload.estimated_selected_kb) || 0),
+    dropped_low_confidence: Number(parseNumberValue(payload.dropped_low_confidence) || 0),
+    dropped_size_budget: Number(parseNumberValue(payload.dropped_size_budget) || 0),
+    dropped_output_limit: Number(parseNumberValue(payload.dropped_output_limit) || 0),
+    fallback_applied: parseBooleanValue(payload.fallback_applied),
+    fallback_reason: fallbackReason,
+  };
+}
+
 function gifPipelineStatusBadgeClass(status?: string) {
   switch ((status || "").trim().toLowerCase()) {
     case "done":
@@ -1287,6 +1646,28 @@ function gifPipelineStatusBadgeClass(status?: string) {
     default:
       return "bg-slate-100 text-slate-500";
   }
+}
+
+function resolveQuickGIFSubStage(quick: string) {
+  const normalized = String(quick || "").trim().toLowerCase();
+  return GIF_SUB_STAGE_QUICK_TO_STAGE[normalized] || "";
+}
+
+function isGIFSubStageQuick(quick: string) {
+  const normalized = String(quick || "").trim().toLowerCase();
+  return normalized === "sub_stage_anomaly" || !!resolveQuickGIFSubStage(normalized);
+}
+
+function resolveGIFSubStageExportFilter(quick: string) {
+  const normalized = String(quick || "").trim().toLowerCase();
+  if (normalized === "sub_stage_anomaly") {
+    return { subStage: "", subStatus: "" };
+  }
+  const subStage = resolveQuickGIFSubStage(normalized);
+  if (!subStage) {
+    return null;
+  }
+  return { subStage, subStatus: "" };
 }
 
 function upliftTextClass(value?: number, options?: { inverse?: boolean }) {
@@ -1386,6 +1767,7 @@ export default function AdminUserVideoJobsPage() {
   const [exportingFeedbackIntegrityReport, setExportingFeedbackIntegrityReport] = useState(false);
   const [exportingFeedbackIntegrityTrendReport, setExportingFeedbackIntegrityTrendReport] = useState(false);
   const [exportingFeedbackIntegrityAnomalyReport, setExportingFeedbackIntegrityAnomalyReport] = useState(false);
+  const [exportingGIFSubStageAnomalyReport, setExportingGIFSubStageAnomalyReport] = useState(false);
   const [exportingBlockedFeedbackReport, setExportingBlockedFeedbackReport] = useState(false);
   const [exportingSampleBaseline, setExportingSampleBaseline] = useState(false);
   const [exportingSampleBaselineDiff, setExportingSampleBaselineDiff] = useState(false);
@@ -1419,8 +1801,29 @@ export default function AdminUserVideoJobsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminVideoJobDetailResponse | null>(null);
+  const [auditChain, setAuditChain] = useState<AdminVideoJobGIFAuditChainResponse | null>(null);
+  const [auditChainLoading, setAuditChainLoading] = useState(false);
+  const [auditChainError, setAuditChainError] = useState<string | null>(null);
   const [detailJobID, setDetailJobID] = useState<number | null>(null);
   const [detailReviewStatusFilter, setDetailReviewStatusFilter] = useState<(typeof REVIEW_STATUS_FILTER_OPTIONS)[number]>("all");
+  const [manualDecisionOutputIDInput, setManualDecisionOutputIDInput] = useState("");
+  const [manualDecisionProposalIDInput, setManualDecisionProposalIDInput] = useState("");
+  const [manualDecisionStatus, setManualDecisionStatus] = useState<(typeof REVIEW_STATUS_FILTER_OPTIONS)[number]>("deliver");
+  const [manualDecisionReason, setManualDecisionReason] = useState("");
+  const [manualDecisionNotes, setManualDecisionNotes] = useState("");
+  const [manualDecisionSubmitting, setManualDecisionSubmitting] = useState(false);
+  const [manualDecisionBatchInput, setManualDecisionBatchInput] = useState("");
+  const [manualDecisionBatchSubmitting, setManualDecisionBatchSubmitting] = useState(false);
+  const [rerenderProposalIDInput, setRerenderProposalIDInput] = useState("");
+  const [rerenderProposalRankInput, setRerenderProposalRankInput] = useState("");
+  const [rerenderSubmitting, setRerenderSubmitting] = useState(false);
+  const [batchRerenderProposalIDsInput, setBatchRerenderProposalIDsInput] = useState("");
+  const [batchRerenderProposalRanksInput, setBatchRerenderProposalRanksInput] = useState("");
+  const [batchRerenderStrategy, setBatchRerenderStrategy] = useState("default");
+  const [batchRerenderForce, setBatchRerenderForce] = useState(false);
+  const [batchRerenderSubmitting, setBatchRerenderSubmitting] = useState(false);
+  const [batchRerenderResult, setBatchRerenderResult] = useState<AdminVideoJobGIFBatchRerenderResponse | null>(null);
+  const [exportingAuditChainCSV, setExportingAuditChainCSV] = useState(false);
 
   const removeToastNotice = useCallback((id: number) => {
     setToastNotices((prev) => prev.filter((item) => item.id !== id));
@@ -1931,6 +2334,58 @@ export default function AdminUserVideoJobsPage() {
     userID,
   ]);
 
+  const exportGIFSubStageAnomalyReport = useCallback(async () => {
+    setExportingGIFSubStageAnomalyReport(true);
+    setExportNotice(null);
+    try {
+      const params = new URLSearchParams({ window: overviewWindow, limit: "1000" });
+      const exportFilter = resolveGIFSubStageExportFilter(quick);
+      if (exportFilter?.subStage) params.set("sub_stage", exportFilter.subStage);
+      if (exportFilter?.subStatus) params.set("sub_status", exportFilter.subStatus);
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/admin/video-jobs/gif-sub-stage-anomalies.csv?${params.toString()}`
+      );
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, "导出细分阶段异常失败"));
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const fallbackName = `video_jobs_gif_sub_stage_anomalies_${overviewWindow}.csv`;
+      const fileName = resolveDownloadFilename(res, fallbackName);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      const summaryParts: string[] = [];
+      if (exportFilter?.subStage) {
+        summaryParts.push(GIF_PIPELINE_STAGE_LABEL[exportFilter.subStage] || exportFilter.subStage);
+      } else {
+        summaryParts.push("全部细分阶段");
+      }
+      summaryParts.push(formatWindowLabel(overviewWindow));
+      setExportNoticeLevel("success");
+      setExportNotice(`导出成功：${fileName}（${summaryParts.join(" / ")}）`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出细分阶段异常失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNoticeRetryAction({ kind: "export_gif_sub_stage_anomalies_report" });
+      setExportNotice(`导出失败：${message}`);
+    } finally {
+      setExportingGIFSubStageAnomalyReport(false);
+    }
+  }, [
+    overviewWindow,
+    quick,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    setExportNoticeRetryAction,
+  ]);
+
   const exportBlockedFeedbackReport = useCallback(async () => {
     setExportingBlockedFeedbackReport(true);
     setExportNotice(null);
@@ -2040,19 +2495,34 @@ export default function AdminUserVideoJobsPage() {
     const requestSeq = detailRequestSeqRef.current + 1;
     detailRequestSeqRef.current = requestSeq;
     setDetailLoading(true);
+    setAuditChainLoading(true);
     setDetailError(null);
+    setAuditChainError(null);
     setDetail(null);
+    setAuditChain(null);
     try {
       const params = new URLSearchParams();
       if (detailReviewStatusFilter !== "all") {
         params.set("review_status", detailReviewStatusFilter);
       }
       const query = params.toString();
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/${jobID}${query ? `?${query}` : ""}`);
+      const detailURL = `${API_BASE}/api/admin/video-jobs/${jobID}${query ? `?${query}` : ""}`;
+      const auditURL = `${API_BASE}/api/admin/video-jobs/${jobID}/gif-audit-chain${query ? `?${query}` : ""}`;
+      const [res, auditRes] = await Promise.all([fetchWithAuth(detailURL), fetchWithAuth(auditURL)]);
       if (!res.ok) throw new Error(await parseApiError(res, "加载详情失败"));
       const data = (await res.json()) as AdminVideoJobDetailResponse;
       if (requestSeq !== detailRequestSeqRef.current || detailTargetJobRef.current !== jobID) return;
       setDetail(data);
+
+      if (auditRes.ok) {
+        const auditData = (await auditRes.json()) as AdminVideoJobGIFAuditChainResponse;
+        if (requestSeq !== detailRequestSeqRef.current || detailTargetJobRef.current !== jobID) return;
+        setAuditChain(auditData);
+      } else {
+        const auditMessage = await parseApiError(auditRes, "加载审计链失败");
+        if (requestSeq !== detailRequestSeqRef.current || detailTargetJobRef.current !== jobID) return;
+        setAuditChainError(auditMessage);
+      }
     } catch (err: unknown) {
       if (requestSeq !== detailRequestSeqRef.current || detailTargetJobRef.current !== jobID) return;
       const message = err instanceof Error ? err.message : "加载详情失败";
@@ -2064,6 +2534,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       if (requestSeq === detailRequestSeqRef.current && detailTargetJobRef.current === jobID) {
         setDetailLoading(false);
+        setAuditChainLoading(false);
       }
     }
   }, [detailReviewStatusFilter, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction]);
@@ -2073,6 +2544,546 @@ export default function AdminUserVideoJobsPage() {
     if (!activeJobID) return;
     void loadDetail(activeJobID);
   }, [detailReviewStatusFilter, loadDetail]);
+
+  useEffect(() => {
+    setRerenderProposalIDInput("");
+    setRerenderProposalRankInput("");
+    setRerenderSubmitting(false);
+    setManualDecisionOutputIDInput("");
+    setManualDecisionProposalIDInput("");
+    setManualDecisionStatus("deliver");
+    setManualDecisionReason("");
+    setManualDecisionNotes("");
+    setManualDecisionSubmitting(false);
+    setManualDecisionBatchInput("");
+    setManualDecisionBatchSubmitting(false);
+    setBatchRerenderProposalIDsInput("");
+    setBatchRerenderProposalRanksInput("");
+    setBatchRerenderStrategy("default");
+    setBatchRerenderForce(false);
+    setBatchRerenderSubmitting(false);
+    setBatchRerenderResult(null);
+    setExportingAuditChainCSV(false);
+  }, [detail?.job?.id]);
+
+  const triggerGIFRerender = useCallback(async () => {
+    const activeJobID = detail?.job?.id;
+    if (!activeJobID) return;
+    const proposalID = Number((rerenderProposalIDInput || "").trim());
+    const proposalRank = Number((rerenderProposalRankInput || "").trim());
+    const payload: Record<string, unknown> = {};
+    if (Number.isFinite(proposalID) && proposalID > 0) {
+      payload.proposal_id = Math.trunc(proposalID);
+    }
+    if (Number.isFinite(proposalRank) && proposalRank > 0) {
+      payload.proposal_rank = Math.trunc(proposalRank);
+    }
+    if (!payload.proposal_id && !payload.proposal_rank) {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("proposal_required");
+      setExportNotice("补渲染失败：请填写 proposal_id 或 proposal_rank");
+      return;
+    }
+
+    setRerenderSubmitting(true);
+    setExportNotice(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/${activeJobID}/rerender-gif`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "补渲染失败"));
+      const data = (await res.json()) as {
+        result?: {
+          output_id?: number;
+          output_object_key?: string;
+          proposal_id?: number;
+          proposal_rank?: number;
+          cost_delta_cny?: number;
+          zip_invalidated?: boolean;
+        };
+      };
+      const outputID = Number(data?.result?.output_id || 0);
+      const proposalText = data?.result?.proposal_id
+        ? `proposal #${data.result.proposal_id}`
+        : data?.result?.proposal_rank
+          ? `proposal_rank #${data.result.proposal_rank}`
+          : "proposal";
+      const costDelta = parseNumberValue(data?.result?.cost_delta_cny);
+      const zipInvalidated = Boolean(data?.result?.zip_invalidated);
+      setExportNoticeLevel("success");
+      setExportNotice(
+        `补渲染完成：${proposalText} -> output #${outputID || "-"}${typeof costDelta === "number" ? `，成本增量 ${costDelta.toFixed(4)} CNY` : ""}${zipInvalidated ? "，ZIP已失效待重建" : ""}`
+      );
+      await loadDetail(activeJobID);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "补渲染失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNoticeRetryAction({ kind: "reload_detail", job_id: activeJobID });
+      setExportNotice(`补渲染失败：${message}`);
+    } finally {
+      setRerenderSubmitting(false);
+    }
+  }, [
+    detail?.job?.id,
+    loadDetail,
+    rerenderProposalIDInput,
+    rerenderProposalRankInput,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    setExportNoticeRetryAction,
+  ]);
+
+  const submitManualGIFReviewDecision = useCallback(async () => {
+    const activeJobID = detail?.job?.id;
+    if (!activeJobID) return;
+    const outputID = Number((manualDecisionOutputIDInput || "").trim());
+    const proposalID = Number((manualDecisionProposalIDInput || "").trim());
+    const decision = normalizeReviewStatus(manualDecisionStatus);
+    if (!Number.isFinite(outputID) || outputID <= 0) {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("output_required");
+      setExportNotice("人工决策失败：请填写 output_id");
+      return;
+    }
+    if (!decision || decision === "all") {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("invalid_decision");
+      setExportNotice("人工决策失败：请选择有效决策状态");
+      return;
+    }
+
+    const item: Record<string, unknown> = {
+      output_id: Math.trunc(outputID),
+      decision,
+      reason: (manualDecisionReason || "").trim(),
+      notes: (manualDecisionNotes || "").trim(),
+    };
+    if (Number.isFinite(proposalID) && proposalID > 0) {
+      item.proposal_id = Math.trunc(proposalID);
+    }
+
+    setManualDecisionSubmitting(true);
+    setExportNotice(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/${activeJobID}/gif-review-decisions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          request_id: `manual-${Date.now()}`,
+          items: [item],
+        }),
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "人工决策失败"));
+      const data = (await res.json()) as AdminVideoJobGIFReviewDecisionResponse;
+      const applied = Number(data.applied || 0);
+      const skipped = Number(data.skipped || 0);
+      setExportNoticeLevel("success");
+      setExportNotice(`人工决策已提交：applied ${applied} / skipped ${skipped}`);
+      setManualDecisionReason("");
+      setManualDecisionNotes("");
+      await loadDetail(activeJobID);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "人工决策失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNoticeRetryAction({ kind: "reload_detail", job_id: activeJobID });
+      setExportNotice(`人工决策失败：${message}`);
+    } finally {
+      setManualDecisionSubmitting(false);
+    }
+  }, [
+    detail?.job?.id,
+    loadDetail,
+    manualDecisionNotes,
+    manualDecisionOutputIDInput,
+    manualDecisionProposalIDInput,
+    manualDecisionReason,
+    manualDecisionStatus,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    setExportNoticeRetryAction,
+  ]);
+
+  const submitBatchManualGIFReviewDecisions = useCallback(async () => {
+    const activeJobID = detail?.job?.id;
+    if (!activeJobID) return;
+    const parsed = parseManualGIFReviewDecisionBatchInput(manualDecisionBatchInput);
+    if (parsed.errors.length) {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("batch_parse_error");
+      setExportNotice(`批量人工决策失败：${parsed.errors[0]}`);
+      return;
+    }
+    if (!parsed.items.length) {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("batch_items_required");
+      setExportNotice("批量人工决策失败：请输入有效内容");
+      return;
+    }
+
+    setManualDecisionBatchSubmitting(true);
+    setExportNotice(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/${activeJobID}/gif-review-decisions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          request_id: `manual-batch-${Date.now()}`,
+          items: parsed.items,
+        }),
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "批量人工决策失败"));
+      const data = (await res.json()) as AdminVideoJobGIFReviewDecisionResponse;
+      const applied = Number(data.applied || 0);
+      const skipped = Number(data.skipped || 0);
+      setExportNoticeLevel("success");
+      setExportNotice(`批量人工决策完成：applied ${applied} / skipped ${skipped}`);
+      setManualDecisionBatchInput("");
+      await loadDetail(activeJobID);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "批量人工决策失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNoticeRetryAction({ kind: "reload_detail", job_id: activeJobID });
+      setExportNotice(`批量人工决策失败：${message}`);
+    } finally {
+      setManualDecisionBatchSubmitting(false);
+    }
+  }, [
+    detail?.job?.id,
+    loadDetail,
+    manualDecisionBatchInput,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    setExportNoticeRetryAction,
+  ]);
+
+  const exportAuditChainCSV = useCallback(async () => {
+    const activeJobID = detail?.job?.id;
+    if (!activeJobID) return;
+    if (!auditChain) {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("audit_chain_missing");
+      setExportNotice("导出失败：当前任务审计链尚未加载完成");
+      return;
+    }
+    setExportingAuditChainCSV(true);
+    setExportNotice(null);
+    try {
+      const summary = auditChain.summary || {};
+      const evaluationRows = Array.isArray(auditChain.gif_evaluations) ? auditChain.gif_evaluations : [];
+      const feedbackRows = Array.isArray(auditChain.feedbacks) ? auditChain.feedbacks : [];
+      const rerenderRows = Array.isArray(auditChain.rerenders) ? auditChain.rerenders : [];
+      const reviewRows = Array.isArray(auditChain.ai_gif_reviews)
+        ? auditChain.ai_gif_reviews
+        : Array.isArray(detail?.ai_gif_reviews)
+          ? detail.ai_gif_reviews
+          : [];
+      const rows: Array<Record<string, unknown>> = [];
+      rows.push({
+        record_type: "summary",
+        job_id: activeJobID,
+        record_id: "",
+        output_id: "",
+        proposal_id: "",
+        recommendation: summary.latest_recommendation || "",
+        decision: "",
+        action: "",
+        stage: "",
+        score_overall: "",
+        score_semantic: "",
+        score_clarity: "",
+        score_loop: "",
+        score_motion: "",
+        score_efficiency: "",
+        hard_gate_blocked_count: summary.hard_gate_blocked_count || 0,
+        candidate_count: summary.candidate_count || 0,
+        proposal_count: summary.proposal_count || 0,
+        output_count: summary.output_count || 0,
+        evaluation_count: summary.evaluation_count || 0,
+        review_count: summary.review_count || 0,
+        feedback_count: summary.feedback_count || 0,
+        rerender_count: summary.rerender_count || 0,
+        ai_usage_count: summary.ai_usage_count || 0,
+        pipeline_mode: summary.pipeline_mode || "",
+        policy_version: summary.policy_version || "",
+        experiment_bucket: summary.experiment_bucket || "",
+        trigger: "",
+        reason: "",
+        notes: "",
+        created_at: summary.latest_recommendation_at || "",
+      });
+
+      for (const item of evaluationRows) {
+        rows.push({
+          record_type: "evaluation",
+          job_id: activeJobID,
+          record_id: item.id || "",
+          output_id: item.output_id || "",
+          proposal_id: item.proposal_id || "",
+          recommendation: "",
+          decision: "",
+          action: "",
+          stage: "scoring",
+          score_overall: item.overall_score ?? "",
+          score_semantic: item.emotion_score ?? "",
+          score_clarity: item.clarity_score ?? "",
+          score_loop: item.loop_score ?? "",
+          score_motion: item.motion_score ?? "",
+          score_efficiency: item.efficiency_score ?? "",
+          hard_gate_blocked_count: "",
+          candidate_count: "",
+          proposal_count: "",
+          output_count: "",
+          evaluation_count: "",
+          review_count: "",
+          feedback_count: "",
+          rerender_count: "",
+          ai_usage_count: "",
+          pipeline_mode: "",
+          policy_version: "",
+          experiment_bucket: "",
+          trigger: "",
+          reason: "",
+          notes: "",
+          created_at: item.created_at || "",
+        });
+      }
+
+      for (const item of reviewRows) {
+        rows.push({
+          record_type: "review",
+          job_id: activeJobID,
+          record_id: item.id || "",
+          output_id: item.output_id || "",
+          proposal_id: item.proposal_id || "",
+          recommendation: item.final_recommendation || "",
+          decision: item.final_recommendation || "",
+          action: "",
+          stage: "reviewing",
+          score_overall: item.semantic_verdict ?? "",
+          score_semantic: item.semantic_verdict ?? "",
+          score_clarity: "",
+          score_loop: "",
+          score_motion: "",
+          score_efficiency: "",
+          hard_gate_blocked_count: "",
+          candidate_count: "",
+          proposal_count: "",
+          output_count: "",
+          evaluation_count: "",
+          review_count: "",
+          feedback_count: "",
+          rerender_count: "",
+          ai_usage_count: "",
+          pipeline_mode: "",
+          policy_version: "",
+          experiment_bucket: "",
+          trigger: "",
+          reason: item.diagnostic_reason || "",
+          notes: item.suggested_action || "",
+          created_at: item.created_at || "",
+        });
+      }
+
+      for (const item of feedbackRows) {
+        rows.push({
+          record_type: "feedback",
+          job_id: activeJobID,
+          record_id: item.id || "",
+          output_id: item.output_id || "",
+          proposal_id: "",
+          recommendation: "",
+          decision: "",
+          action: item.action || "",
+          stage: "feedback",
+          score_overall: item.weight ?? "",
+          score_semantic: "",
+          score_clarity: "",
+          score_loop: "",
+          score_motion: "",
+          score_efficiency: "",
+          hard_gate_blocked_count: "",
+          candidate_count: "",
+          proposal_count: "",
+          output_count: "",
+          evaluation_count: "",
+          review_count: "",
+          feedback_count: "",
+          rerender_count: "",
+          ai_usage_count: "",
+          pipeline_mode: "",
+          policy_version: "",
+          experiment_bucket: "",
+          trigger: "",
+          reason: item.scene_tag || "",
+          notes: "",
+          created_at: item.created_at || "",
+        });
+      }
+
+      for (const item of rerenderRows) {
+        rows.push({
+          record_type: "rerender",
+          job_id: activeJobID,
+          record_id: item.review_id || "",
+          output_id: item.output_id || "",
+          proposal_id: item.proposal_id || "",
+          recommendation: item.recommendation || "",
+          decision: item.recommendation || "",
+          action: "rerender",
+          stage: "rendering",
+          score_overall: "",
+          score_semantic: "",
+          score_clarity: "",
+          score_loop: "",
+          score_motion: "",
+          score_efficiency: "",
+          hard_gate_blocked_count: "",
+          candidate_count: "",
+          proposal_count: "",
+          output_count: "",
+          evaluation_count: "",
+          review_count: "",
+          feedback_count: "",
+          rerender_count: "",
+          ai_usage_count: "",
+          pipeline_mode: "",
+          policy_version: "",
+          experiment_bucket: "",
+          trigger: item.trigger || "",
+          reason: item.diagnostic || "",
+          notes: item.suggested_action || "",
+          created_at: item.created_at || "",
+        });
+      }
+
+      const headers = [
+        "record_type",
+        "job_id",
+        "record_id",
+        "output_id",
+        "proposal_id",
+        "recommendation",
+        "decision",
+        "action",
+        "stage",
+        "score_overall",
+        "score_semantic",
+        "score_clarity",
+        "score_loop",
+        "score_motion",
+        "score_efficiency",
+        "hard_gate_blocked_count",
+        "candidate_count",
+        "proposal_count",
+        "output_count",
+        "evaluation_count",
+        "review_count",
+        "feedback_count",
+        "rerender_count",
+        "ai_usage_count",
+        "pipeline_mode",
+        "policy_version",
+        "experiment_bucket",
+        "trigger",
+        "reason",
+        "notes",
+        "created_at",
+      ];
+      const csv = buildCSVText(headers, rows);
+      const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "");
+      const filename = `video_job_${activeJobID}_gif_audit_chain_${stamp}.csv`;
+      downloadTextFile(filename, csv, "text/csv;charset=utf-8;");
+      setExportNoticeLevel("success");
+      setExportNotice(`导出成功：${filename}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出审计链失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNotice(`导出失败：${message}`);
+    } finally {
+      setExportingAuditChainCSV(false);
+    }
+  }, [
+    auditChain,
+    detail?.job?.id,
+    detail?.ai_gif_reviews,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+  ]);
+
+  const triggerGIFBatchRerender = useCallback(async () => {
+    const activeJobID = detail?.job?.id;
+    if (!activeJobID) return;
+    const proposalIDs = parseIntegerListInput(batchRerenderProposalIDsInput);
+    const proposalRanks = parseIntegerListInput(batchRerenderProposalRanksInput);
+    if (!proposalIDs.length && !proposalRanks.length) {
+      setExportNoticeLevel("error");
+      setExportNoticeCode("proposal_required");
+      setExportNotice("批量补渲染失败：请填写 proposal_ids 或 proposal_ranks");
+      return;
+    }
+
+    setBatchRerenderSubmitting(true);
+    setExportNotice(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/${activeJobID}/rerender-gif/batch`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          request_id: `batch-${Date.now()}`,
+          proposal_ids: proposalIDs,
+          proposal_ranks: proposalRanks,
+          strategy: batchRerenderStrategy,
+          force: batchRerenderForce,
+        }),
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "批量补渲染失败"));
+      const data = (await res.json()) as AdminVideoJobGIFBatchRerenderResponse;
+      const succeeded = Number(data.succeeded || 0);
+      const total = Number(data.total || 0);
+      const failed = Number(data.failed || 0);
+      setBatchRerenderResult(data);
+      setExportNoticeLevel("success");
+      setExportNotice(`批量补渲染完成：${succeeded}/${total} 成功${failed > 0 ? `，失败 ${failed}` : ""}`);
+      await loadDetail(activeJobID);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "批量补渲染失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNoticeRetryAction({ kind: "reload_detail", job_id: activeJobID });
+      setExportNotice(`批量补渲染失败：${message}`);
+    } finally {
+      setBatchRerenderSubmitting(false);
+    }
+  }, [
+    batchRerenderForce,
+    batchRerenderProposalIDsInput,
+    batchRerenderProposalRanksInput,
+    batchRerenderStrategy,
+    detail?.job?.id,
+    loadDetail,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    setExportNoticeRetryAction,
+  ]);
 
   const retryToastNotice = useCallback((notice: ToastNotice) => {
     const action = notice.retry_action;
@@ -2111,6 +3122,9 @@ export default function AdminUserVideoJobsPage() {
       case "export_feedback_integrity_anomalies_report":
         void exportFeedbackIntegrityAnomalyReport();
         break;
+      case "export_gif_sub_stage_anomalies_report":
+        void exportGIFSubStageAnomalyReport();
+        break;
       case "export_blocked_feedback_report":
         void exportBlockedFeedbackReport();
         break;
@@ -2127,6 +3141,7 @@ export default function AdminUserVideoJobsPage() {
     exportFeedbackIntegrityAnomalyReport,
     exportFeedbackIntegrityReport,
     exportFeedbackIntegrityTrendReport,
+    exportGIFSubStageAnomalyReport,
     exportSampleBaseline,
     exportSampleBaselineDiff,
     load,
@@ -2201,6 +3216,31 @@ export default function AdminUserVideoJobsPage() {
   const feedbackAnomalyJobsWindow = Number(overview?.feedback_integrity_anomaly_jobs_window || 0);
   const feedbackTopPickConflictJobsWindow = Number(overview?.feedback_integrity_top_pick_conflict_jobs_window || 0);
   const feedbackNegativeGuardOverview = overview?.feedback_negative_guard_overview || null;
+  const gifSubStageAnomalyJobsWindow = Number(overview?.gif_sub_stage_anomaly_jobs_window || 0);
+  const gifSubStageAnomalyOverview = useMemo(() => {
+    const source = Array.isArray(overview?.gif_sub_stage_anomaly_overview) ? overview.gif_sub_stage_anomaly_overview : [];
+    if (!source.length) return [];
+    return source.slice(0, 8);
+  }, [overview?.gif_sub_stage_anomaly_overview]);
+  const gifSubStageAnomalyReasons = useMemo(() => {
+    const source = Array.isArray(overview?.gif_sub_stage_anomaly_reasons) ? overview.gif_sub_stage_anomaly_reasons : [];
+    if (!source.length) return [];
+    return source.slice(0, 12);
+  }, [overview?.gif_sub_stage_anomaly_reasons]);
+  const gifSubStageAnomalyByStage = useMemo(() => {
+    const map = new Map<string, AdminVideoJobGIFSubStageAnomalyStat>();
+    for (const item of gifSubStageAnomalyOverview) {
+      const key = String(item.sub_stage || "").trim().toLowerCase();
+      if (!key) continue;
+      map.set(key, item);
+    }
+    return map;
+  }, [gifSubStageAnomalyOverview]);
+  const activeQuickGIFSubStage = useMemo(() => resolveQuickGIFSubStage(quick), [quick]);
+  const activeQuickGIFSubStageLabel = useMemo(() => {
+    if (!activeQuickGIFSubStage) return "全部细分阶段";
+    return GIF_PIPELINE_STAGE_LABEL[activeQuickGIFSubStage] || activeQuickGIFSubStage;
+  }, [activeQuickGIFSubStage]);
   const liveCoverSceneStats = useMemo(() => {
     const source = Array.isArray(overview?.live_cover_scene_stats) ? overview.live_cover_scene_stats : [];
     if (!source.length) return [];
@@ -2332,6 +3372,12 @@ export default function AdminUserVideoJobsPage() {
     }
     return `导出原因阻断名单(${overviewWindow})`;
   }, [guardReason, overviewWindow, quick]);
+  const gifSubStageExportLabel = useMemo(() => {
+    if (!isGIFSubStageQuick(quick)) {
+      return `导出细分阶段异常(${overviewWindow})`;
+    }
+    return `导出细分阶段异常(${activeQuickGIFSubStageLabel})`;
+  }, [activeQuickGIFSubStageLabel, overviewWindow, quick]);
   const sourceProbeJobsWindow = overview?.source_probe_jobs_window ?? 0;
   const createdWindow = overview?.created_window ?? 0;
   const sourceProbeCoverageRate =
@@ -2424,6 +3470,14 @@ export default function AdminUserVideoJobsPage() {
     () => resolveGIFPipelineSubStages(detail?.job?.metrics),
     [detail?.job?.metrics]
   );
+  const detailGIFRenderSelection = useMemo(
+    () => resolveGIFRenderSelection(detail?.job?.metrics),
+    [detail?.job?.metrics]
+  );
+  const detailSourceVideoDeleted = useMemo(
+    () => parseBooleanValue(detail?.job?.metrics?.source_video_deleted),
+    [detail?.job?.metrics]
+  );
   const detailAIUsageRows = useMemo(() => {
     const source = Array.isArray(detail?.ai_usages) ? detail.ai_usages : [];
     return [...source].sort((a, b) => {
@@ -2443,6 +3497,133 @@ export default function AdminUserVideoJobsPage() {
     const source = Array.isArray(detail?.ai_gif_directives) ? detail.ai_gif_directives : [];
     return [...source].sort((a, b) => (b.id || 0) - (a.id || 0));
   }, [detail?.ai_gif_directives]);
+  const detailAIProposals = useMemo(() => {
+    const source = Array.isArray(detail?.ai_gif_proposals) ? detail.ai_gif_proposals : [];
+    return [...source].sort((a, b) => {
+      const ar = Number(a.proposal_rank || 0);
+      const br = Number(b.proposal_rank || 0);
+      if (ar > 0 && br > 0 && ar !== br) return ar - br;
+      return (a.id || 0) - (b.id || 0);
+    });
+  }, [detail?.ai_gif_proposals]);
+  const detailRenderedProposalIDs = useMemo(() => {
+    const rendered = new Set<number>();
+    for (const artifact of detail?.artifacts || []) {
+      if ((artifact.type || "").toLowerCase() !== "main") continue;
+      const key = String(artifact.qiniu_key || "").toLowerCase();
+      if (!key.includes("/outputs/gif/")) continue;
+      const proposalID = parseNumberValue(artifact.metadata?.proposal_id);
+      if (typeof proposalID === "number" && proposalID > 0) {
+        rendered.add(Math.trunc(proposalID));
+      }
+    }
+    return rendered;
+  }, [detail?.artifacts]);
+  const detailPendingGIFProposals = useMemo(() => {
+    return detailAIProposals.filter((item) => {
+      const pid = Number(item.id || 0);
+      return pid > 0 && !detailRenderedProposalIDs.has(pid);
+    });
+  }, [detailAIProposals, detailRenderedProposalIDs]);
+  const manualDecisionBatchParsed = useMemo(
+    () => parseManualGIFReviewDecisionBatchInput(manualDecisionBatchInput),
+    [manualDecisionBatchInput]
+  );
+  const detailAuditSummary = useMemo(() => auditChain?.summary || null, [auditChain?.summary]);
+  const detailAuditEvaluationRows = useMemo(() => {
+    const source = Array.isArray(auditChain?.gif_evaluations) ? auditChain.gif_evaluations : [];
+    return [...source].sort((a, b) => (b.id || 0) - (a.id || 0));
+  }, [auditChain?.gif_evaluations]);
+  const detailAuditFeedbackRows = useMemo(() => {
+    const source = Array.isArray(auditChain?.feedbacks) ? auditChain.feedbacks : [];
+    return [...source].sort((a, b) => (b.id || 0) - (a.id || 0));
+  }, [auditChain?.feedbacks]);
+  const detailAuditRerenderRows = useMemo(() => {
+    const source = Array.isArray(auditChain?.rerenders) ? auditChain.rerenders : [];
+    return [...source].sort((a, b) => {
+      const at = new Date(a.created_at || "").getTime();
+      const bt = new Date(b.created_at || "").getTime();
+      if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
+      return (Number(b.review_id || 0) || 0) - (Number(a.review_id || 0) || 0);
+    });
+  }, [auditChain?.rerenders]);
+  const detailAIReviewByOutputID = useMemo(() => {
+    const out = new Map<number, AdminVideoJobAIGIFReview>();
+    for (const item of detail?.ai_gif_reviews || []) {
+      const outputID = Number(item.output_id || 0);
+      if (!Number.isFinite(outputID) || outputID <= 0) continue;
+      if (!out.has(outputID)) {
+        out.set(outputID, item);
+      }
+    }
+    return out;
+  }, [detail?.ai_gif_reviews]);
+  const detailEvaluationByOutputID = useMemo(() => {
+    const out = new Map<number, AdminVideoJobGIFEvaluation>();
+    for (const item of detailAuditEvaluationRows) {
+      const outputID = Number(item.output_id || 0);
+      if (!Number.isFinite(outputID) || outputID <= 0) continue;
+      if (!out.has(outputID)) {
+        out.set(outputID, item);
+      }
+    }
+    return out;
+  }, [detailAuditEvaluationRows]);
+  const detailGIFMainOutputs = useMemo(() => {
+    const source = Array.isArray(auditChain?.outputs)
+      ? auditChain.outputs
+      : Array.isArray(detail?.artifacts)
+        ? detail.artifacts
+        : [];
+    const rows = source
+      .filter((item) => String(item.type || "").toLowerCase() === "main")
+      .filter((item) => String(item.qiniu_key || "").toLowerCase().includes("/outputs/gif/"))
+      .map((item) => {
+        const outputID = Number(item.id || 0);
+        const proposalID = parseNumberValue(item.metadata?.proposal_id);
+        const optimizationPayload =
+          item.metadata && typeof item.metadata === "object"
+            ? (item.metadata.gif_optimization_v1 as Record<string, unknown> | undefined)
+            : undefined;
+        const optimization = optimizationPayload
+          ? {
+              enabled: parseBooleanValue(optimizationPayload.enabled),
+              attempted: parseBooleanValue(optimizationPayload.attempted),
+              applied: parseBooleanValue(optimizationPayload.applied),
+              level: parseNumberValue(optimizationPayload.level),
+              before_size_bytes: parseNumberValue(optimizationPayload.before_size_bytes),
+              after_size_bytes: parseNumberValue(optimizationPayload.after_size_bytes),
+              saved_bytes: parseNumberValue(optimizationPayload.saved_bytes),
+              saved_ratio: parseNumberValue(optimizationPayload.saved_ratio),
+              reason: String(optimizationPayload.reason || ""),
+              error: String(optimizationPayload.error || ""),
+            }
+          : undefined;
+        return {
+          id: outputID,
+          proposal_id: typeof proposalID === "number" && proposalID > 0 ? Math.trunc(proposalID) : undefined,
+          qiniu_key: String(item.qiniu_key || ""),
+          url: String(item.url || ""),
+          size_bytes: Number(item.size_bytes || 0),
+          width: Number(item.width || 0),
+          height: Number(item.height || 0),
+          created_at: String(item.created_at || ""),
+          optimization,
+        };
+      })
+      .filter((item) => item.id > 0);
+    rows.sort((a, b) => b.id - a.id);
+    return rows;
+  }, [auditChain?.outputs, detail?.artifacts]);
+  const detailGIFPreviewCards = useMemo(() => {
+    return detailGIFMainOutputs
+      .map((item) => ({
+        ...item,
+        review: detailAIReviewByOutputID.get(item.id),
+        evaluation: detailEvaluationByOutputID.get(item.id),
+      }))
+      .slice(0, 24);
+  }, [detailAIReviewByOutputID, detailEvaluationByOutputID, detailGIFMainOutputs]);
   const renderProbeQualityTable = (
     title: string,
     rows: AdminVideoJobSourceProbeQualityStat[],
@@ -2563,6 +3744,14 @@ export default function AdminUserVideoJobsPage() {
               title={`当前筛选：${feedbackFilterLabel}`}
             >
               {exportingBlockedFeedbackReport ? "导出中..." : blockedExportLabel}
+            </button>
+            <button
+              className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs font-semibold text-cyan-700 hover:border-cyan-300"
+              onClick={() => void exportGIFSubStageAnomalyReport()}
+              disabled={exportingGIFSubStageAnomalyReport}
+              title={isGIFSubStageQuick(quick) ? `当前子阶段筛选：${activeQuickGIFSubStageLabel}` : "建议先切换到子阶段异常快捷筛选后导出"}
+            >
+              {exportingGIFSubStageAnomalyReport ? "导出中..." : gifSubStageExportLabel}
             </button>
             <button
               className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-semibold text-violet-700 hover:border-violet-300"
@@ -3013,6 +4202,71 @@ export default function AdminUserVideoJobsPage() {
         </button>
         <button
           onClick={() => {
+            setQuick("sub_stage_anomaly");
+            setPage(1);
+          }}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            quick === "sub_stage_anomaly"
+              ? "bg-cyan-700 text-white"
+              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          子阶段异常（{gifSubStageAnomalyJobsWindow}）
+        </button>
+        <button
+          onClick={() => {
+            setQuick("sub_stage_briefing_anomaly");
+            setPage(1);
+          }}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            quick === "sub_stage_briefing_anomaly"
+              ? "bg-cyan-600 text-white"
+              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          Briefing异常（{gifSubStageAnomalyByStage.get("briefing")?.anomaly_jobs ?? 0}）
+        </button>
+        <button
+          onClick={() => {
+            setQuick("sub_stage_planning_anomaly");
+            setPage(1);
+          }}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            quick === "sub_stage_planning_anomaly"
+              ? "bg-cyan-600 text-white"
+              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          Planning异常（{gifSubStageAnomalyByStage.get("planning")?.anomaly_jobs ?? 0}）
+        </button>
+        <button
+          onClick={() => {
+            setQuick("sub_stage_scoring_anomaly");
+            setPage(1);
+          }}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            quick === "sub_stage_scoring_anomaly"
+              ? "bg-cyan-600 text-white"
+              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          Scoring异常（{gifSubStageAnomalyByStage.get("scoring")?.anomaly_jobs ?? 0}）
+        </button>
+        <button
+          onClick={() => {
+            setQuick("sub_stage_reviewing_anomaly");
+            setPage(1);
+          }}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            quick === "sub_stage_reviewing_anomaly"
+              ? "bg-cyan-600 text-white"
+              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          Reviewing异常（{gifSubStageAnomalyByStage.get("reviewing")?.anomaly_jobs ?? 0}）
+        </button>
+        <button
+          onClick={() => {
             setQuick("feedback_anomaly");
             setPage(1);
           }}
@@ -3085,6 +4339,16 @@ export default function AdminUserVideoJobsPage() {
             {exportingBlockedFeedbackReport ? "导出中..." : "导出当前筛选阻断名单"}
           </button>
         ) : null}
+        {isGIFSubStageQuick(quick) ? (
+          <button
+            onClick={() => void exportGIFSubStageAnomalyReport()}
+            disabled={exportingGIFSubStageAnomalyReport}
+            className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+            title={`当前子阶段筛选：${activeQuickGIFSubStageLabel}`}
+          >
+            {exportingGIFSubStageAnomalyReport ? "导出中..." : `导出当前子阶段异常(${activeQuickGIFSubStageLabel})`}
+          </button>
+        ) : null}
         <button
           onClick={() => {
             setSampleFilter((prev) => (prev === "sample" ? "all" : "sample"));
@@ -3149,6 +4413,92 @@ export default function AdminUserVideoJobsPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : null}
+
+      {gifSubStageAnomalyOverview.length ? (
+        <div className="rounded-3xl border border-cyan-100 bg-cyan-50/30 p-4 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-bold text-cyan-700">GIF 细分阶段异常定位（{windowLabel}）</div>
+            <div className="text-xs text-cyan-700">异常任务数：{gifSubStageAnomalyJobsWindow}</div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="overflow-x-auto rounded-2xl border border-cyan-100 bg-white">
+              <table className="w-full min-w-[680px] text-left text-xs">
+                <thead className="bg-cyan-50 text-cyan-700">
+                  <tr>
+                    <th className="px-3 py-2">细分阶段</th>
+                    <th className="px-3 py-2">样本</th>
+                    <th className="px-3 py-2">degraded</th>
+                    <th className="px-3 py-2">failed</th>
+                    <th className="px-3 py-2">异常率</th>
+                    <th className="px-3 py-2">Top 原因</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-cyan-50 text-slate-700">
+                  {gifSubStageAnomalyOverview.map((item) => (
+                    <tr key={`gif-sub-stage-anomaly-${item.sub_stage}`}>
+                      <td className="px-3 py-2 font-semibold text-slate-700">
+                        {item.sub_stage_label || GIF_PIPELINE_STAGE_LABEL[item.sub_stage] || item.sub_stage}
+                      </td>
+                      <td className="px-3 py-2">{item.samples || 0}</td>
+                      <td className="px-3 py-2 text-amber-700">{item.degraded_jobs || 0}</td>
+                      <td className="px-3 py-2 text-rose-700">{item.failed_jobs || 0}</td>
+                      <td className="px-3 py-2">{formatPercent(item.anomaly_rate)}</td>
+                      <td className="px-3 py-2 max-w-[260px] truncate" title={item.top_reason || ""}>
+                        {item.top_reason ? `${item.top_reason} (${item.top_reason_count || 0})` : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="overflow-x-auto rounded-2xl border border-cyan-100 bg-white">
+              <table className="w-full min-w-[560px] text-left text-xs">
+                <thead className="bg-cyan-50 text-cyan-700">
+                  <tr>
+                    <th className="px-3 py-2">阶段</th>
+                    <th className="px-3 py-2">状态</th>
+                    <th className="px-3 py-2">异常原因</th>
+                    <th className="px-3 py-2">次数</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-cyan-50 text-slate-700">
+                  {gifSubStageAnomalyReasons.map((item, index) => (
+                    <tr key={`gif-sub-stage-reason-${item.sub_stage}-${item.status}-${index}`}>
+                      <td className="px-3 py-2 font-semibold text-slate-700">
+                        {item.sub_stage_label || GIF_PIPELINE_STAGE_LABEL[item.sub_stage] || item.sub_stage}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            item.status === "failed"
+                              ? "bg-rose-100 text-rose-700"
+                              : item.status === "degraded"
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {item.status || "-"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 max-w-[240px] truncate" title={item.reason || ""}>
+                        {item.reason || "-"}
+                      </td>
+                      <td className="px-3 py-2">{item.count || 0}</td>
+                    </tr>
+                  ))}
+                  {!gifSubStageAnomalyReasons.length ? (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-6 text-center text-slate-400">
+                        当前窗口暂无细分阶段异常原因样本
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       ) : null}
@@ -3655,6 +5005,56 @@ export default function AdminUserVideoJobsPage() {
               );
             })()}
 
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-violet-700">
+                  GIF 审计链概览（ABC-A）
+                </div>
+                <button
+                  type="button"
+                  disabled={exportingAuditChainCSV || auditChainLoading || !auditChain}
+                  onClick={() => {
+                    void exportAuditChainCSV();
+                  }}
+                  className="rounded-lg border border-violet-200 bg-white px-2 py-1 text-[11px] text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {exportingAuditChainCSV ? "导出中..." : "导出审计链CSV"}
+                </button>
+              </div>
+              {auditChainLoading ? <div className="text-xs text-slate-500">审计链加载中...</div> : null}
+              {auditChainError ? (
+                <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  审计链加载失败：{auditChainError}
+                </div>
+              ) : null}
+              {detailAuditSummary ? (
+                <div className="grid gap-2 text-xs text-slate-700 md:grid-cols-3">
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    <div>候选/提案：{detailAuditSummary.candidate_count || 0} / {detailAuditSummary.proposal_count || 0}</div>
+                    <div className="mt-1">产物/评测：{detailAuditSummary.output_count || 0} / {detailAuditSummary.evaluation_count || 0}</div>
+                    <div className="mt-1">复审/反馈：{detailAuditSummary.review_count || 0} / {detailAuditSummary.feedback_count || 0}</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    <div>重渲染：{detailAuditSummary.rerender_count || 0}</div>
+                    <div className="mt-1">硬闸门阻断：{detailAuditSummary.hard_gate_blocked_count || 0}</div>
+                    <div className="mt-1">AI调用：{detailAuditSummary.ai_usage_count || 0}</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    <div>pipeline_mode：{detailAuditSummary.pipeline_mode || "-"}</div>
+                    <div className="mt-1">policy_version：{detailAuditSummary.policy_version || "-"}</div>
+                    <div className="mt-1">experiment_bucket：{detailAuditSummary.experiment_bucket || "-"}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500">暂无审计链摘要</div>
+              )}
+              {detailAuditSummary?.latest_recommendation ? (
+                <div className="mt-2 rounded-xl border border-violet-100 bg-white px-3 py-2 text-xs text-slate-700">
+                  最新推荐：{reviewStatusLabel(detailAuditSummary.latest_recommendation)} · {formatTime(detailAuditSummary.latest_recommendation_at)}
+                </div>
+              ) : null}
+            </div>
+
             <div className="rounded-2xl border border-slate-100 bg-white p-4">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 GIF 细分阶段（M49 兼容态）
@@ -3693,6 +5093,195 @@ export default function AdminUserVideoJobsPage() {
               </div>
             </div>
 
+            {detailGIFRenderSelection ? (
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyan-700">
+                  GIF 渲染策略（M50 主线）
+                </div>
+                <div className="grid gap-2 text-xs text-slate-700 md:grid-cols-3">
+                  <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                    <div>版本：{detailGIFRenderSelection.version || "-"}</div>
+                    <div className="mt-1">启用：{detailGIFRenderSelection.enabled ? "是" : "否"}</div>
+                    <div className="mt-1">时长档位：{detailGIFRenderSelection.duration_tier || "-"}</div>
+                  </div>
+                  <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                    <div>候选池：{detailGIFRenderSelection.candidate_pool_count}</div>
+                    <div className="mt-1">可渲染：{detailGIFRenderSelection.eligible_candidate_count}</div>
+                    <div className="mt-1">最终渲染窗口：{detailGIFRenderSelection.selected_window_count}</div>
+                  </div>
+                  <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                    <div>
+                      上限：{detailGIFRenderSelection.base_max_outputs} → {detailGIFRenderSelection.tier_max_outputs}
+                    </div>
+                    <div className="mt-1">置信阈值：{detailGIFRenderSelection.confidence_threshold.toFixed(2)}</div>
+                    <div className="mt-1">
+                      预算KB：{formatInteger(detailGIFRenderSelection.estimated_selected_kb)} /{" "}
+                      {formatInteger(detailGIFRenderSelection.estimated_budget_limit_kb)}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 rounded-xl border border-cyan-100 bg-white px-3 py-2 text-xs text-slate-700">
+                  <div>
+                    dropped：low_conf={detailGIFRenderSelection.dropped_low_confidence} · size_budget=
+                    {detailGIFRenderSelection.dropped_size_budget} · output_limit=
+                    {detailGIFRenderSelection.dropped_output_limit}
+                  </div>
+                  <div className="mt-1">
+                    fallback：{detailGIFRenderSelection.fallback_applied ? "是" : "否"} · reason：
+                    {detailGIFRenderSelection.fallback_reason || "-"}
+                  </div>
+                </div>
+                <div className="mt-2 rounded-xl border border-cyan-100 bg-white px-3 py-2 text-xs text-slate-700">
+                  <div className="mb-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                    <span>AI2 proposals：{detailAIProposals.length}</span>
+                    <span>已渲染 proposal：{detailRenderedProposalIDs.size}</span>
+                    <span>待补渲染 proposal：{detailPendingGIFProposals.length}</span>
+                  </div>
+                  {detailPendingGIFProposals.length ? (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {detailPendingGIFProposals.slice(0, 4).map((item) => (
+                        <button
+                          key={`pending-proposal-${item.id}`}
+                          type="button"
+                          className="rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[11px] text-cyan-700 hover:bg-cyan-100"
+                          onClick={() => {
+                            setRerenderProposalIDInput(String(item.id || ""));
+                            setRerenderProposalRankInput(String(item.proposal_rank || ""));
+                          }}
+                        >
+                          # {item.id} / rank {item.proposal_rank || "-"}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                    <input
+                      value={rerenderProposalIDInput}
+                      onChange={(e) => setRerenderProposalIDInput(e.target.value)}
+                      placeholder="proposal_id（优先）"
+                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                    />
+                    <input
+                      value={rerenderProposalRankInput}
+                      onChange={(e) => setRerenderProposalRankInput(e.target.value)}
+                      placeholder="proposal_rank（兜底）"
+                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                    />
+                    <button
+                      type="button"
+                      disabled={rerenderSubmitting || detailSourceVideoDeleted}
+                      onClick={() => {
+                        void triggerGIFRerender();
+                      }}
+                      className="rounded-lg border border-cyan-200 bg-cyan-600 px-3 py-1 text-xs text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {detailSourceVideoDeleted ? "源视频已清理" : rerenderSubmitting ? "补渲染中..." : "按需补渲染 GIF"}
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    说明：新补渲染 GIF 默认标记为 need_manual_review；同时 ZIP 会失效，后续下载时按当前产物自动重建。
+                    {detailSourceVideoDeleted ? " 当前任务源视频已清理，需重新上传重跑任务才能补渲染。" : ""}
+                  </div>
+                </div>
+                <div className="mt-2 rounded-xl border border-cyan-100 bg-white px-3 py-2 text-xs text-slate-700">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-cyan-700">
+                    批量补渲染（ABC-C1）
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input
+                      value={batchRerenderProposalIDsInput}
+                      onChange={(e) => setBatchRerenderProposalIDsInput(e.target.value)}
+                      placeholder="proposal_ids（逗号分隔）"
+                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                    />
+                    <input
+                      value={batchRerenderProposalRanksInput}
+                      onChange={(e) => setBatchRerenderProposalRanksInput(e.target.value)}
+                      placeholder="proposal_ranks（逗号分隔）"
+                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <select
+                      value={batchRerenderStrategy}
+                      onChange={(event) => setBatchRerenderStrategy(event.target.value)}
+                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-cyan-400"
+                    >
+                      <option value="default">default</option>
+                      <option value="loop_first">loop_first</option>
+                      <option value="size_first">size_first</option>
+                      <option value="clarity_first">clarity_first</option>
+                      <option value="viral_first">viral_first</option>
+                    </select>
+                    <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={batchRerenderForce}
+                        onChange={(event) => setBatchRerenderForce(event.target.checked)}
+                      />
+                      force
+                    </label>
+                    <button
+                      type="button"
+                      disabled={batchRerenderSubmitting || !detailPendingGIFProposals.length}
+                      onClick={() => {
+                        const proposalIDs = detailPendingGIFProposals.map((item) => Number(item.id || 0)).filter((id) => id > 0);
+                        setBatchRerenderProposalIDsInput(proposalIDs.join(","));
+                      }}
+                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      填充待补渲染
+                    </button>
+                    <button
+                      type="button"
+                      disabled={batchRerenderSubmitting || detailSourceVideoDeleted}
+                      onClick={() => {
+                        void triggerGIFBatchRerender();
+                      }}
+                      className="rounded-lg border border-cyan-200 bg-cyan-600 px-3 py-1 text-xs text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {detailSourceVideoDeleted ? "源视频已清理" : batchRerenderSubmitting ? "批量补渲染中..." : "批量补渲染"}
+                    </button>
+                  </div>
+                  {batchRerenderResult ? (
+                    <div className="mt-2 rounded-lg border border-cyan-100 bg-cyan-50 px-2 py-1.5 text-[11px] text-cyan-800">
+                      request_id：{batchRerenderResult.request_id || "-"} · total {batchRerenderResult.total || 0} · succeeded{" "}
+                      {batchRerenderResult.succeeded || 0} · failed {batchRerenderResult.failed || 0}
+                      {batchRerenderResult.idempotent ? " · idempotent" : ""}
+                    </div>
+                  ) : null}
+                  {Array.isArray(batchRerenderResult?.items) && batchRerenderResult?.items?.length ? (
+                    <div className="mt-2 max-h-44 overflow-auto rounded-lg border border-cyan-100">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-cyan-50 text-cyan-700">
+                          <tr>
+                            <th className="px-2 py-1">proposal</th>
+                            <th className="px-2 py-1">状态</th>
+                            <th className="px-2 py-1">output</th>
+                            <th className="px-2 py-1">错误</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-cyan-50 text-slate-700">
+                          {(batchRerenderResult.items || []).map((item, idx) => (
+                            <tr key={`batch-rerender-item-${idx}-${item.proposal_id || 0}`}>
+                              <td className="px-2 py-1">
+                                #{item.proposal_id || "-"} / rank {item.proposal_rank || "-"}
+                              </td>
+                              <td className="px-2 py-1">{item.status || "-"}</td>
+                              <td className="px-2 py-1">{item.result?.output_id || "-"}</td>
+                              <td className="px-2 py-1 max-w-[240px] truncate" title={item.error || ""}>
+                                {item.error_code || item.error || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             {detailAIDirectives.length ? (
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-700">
@@ -3718,6 +5307,114 @@ export default function AdminUserVideoJobsPage() {
                 <div className="mt-2 rounded-xl border border-indigo-100 bg-white px-3 py-2 text-xs text-slate-700">
                   <div className="text-[11px] text-slate-500">directive_text</div>
                   <div className="mt-1 whitespace-pre-wrap break-words">{detailAIDirectives[0].directive_text || "-"}</div>
+                </div>
+              </div>
+            ) : null}
+
+            {detailAIProposals.length ? (
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700">
+                  AI2 方案提名详情（Planner）
+                </div>
+                <div className="max-h-72 overflow-auto rounded-2xl border border-blue-100 bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-blue-50 text-blue-700">
+                      <tr>
+                        <th className="px-3 py-2">rank/id</th>
+                        <th className="px-3 py-2">窗口</th>
+                        <th className="px-3 py-2">置信度</th>
+                        <th className="px-3 py-2">预期价值</th>
+                        <th className="px-3 py-2">语义标签</th>
+                        <th className="px-3 py-2">理由</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-blue-50 text-slate-700">
+                      {detailAIProposals.map((item) => (
+                        <tr key={`ai2-proposal-${item.id}`}>
+                          <td className="px-3 py-2">
+                            <div>#{item.proposal_rank || "-"}</div>
+                            <div className="text-[10px] text-slate-500">id: {item.id}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            {formatScore(item.start_sec)}s ~ {formatScore(item.end_sec)}s
+                            <div className="text-[10px] text-slate-500">dur {formatScore(item.duration_sec)}s</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div>base {formatScore(item.base_score)}</div>
+                            <div className="text-[10px] text-slate-500">
+                              standalone {formatScore(item.standalone_confidence)} / loop {formatScore(item.loop_friendliness_hint)}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">{item.expected_value_level || "-"}</td>
+                          <td className="px-3 py-2 max-w-[220px] truncate" title={(item.semantic_tags || []).join(", ")}>
+                            {(item.semantic_tags || []).join(" / ") || "-"}
+                          </td>
+                          <td className="px-3 py-2 max-w-[280px] truncate" title={item.proposal_reason || ""}>
+                            {item.proposal_reason || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
+            {detailGIFPreviewCards.length ? (
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                  GIF 产物预览 + 语义/评分
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {detailGIFPreviewCards.map((item) => (
+                    <div key={`gif-card-${item.id}`} className="overflow-hidden rounded-xl border border-emerald-100 bg-white">
+                      {item.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.url} alt={`gif-${item.id}`} className="h-40 w-full bg-slate-100 object-contain" />
+                      ) : (
+                        <div className="flex h-40 items-center justify-center bg-slate-100 text-xs text-slate-400">
+                          无预览地址
+                        </div>
+                      )}
+                      <div className="space-y-1.5 px-3 py-2 text-[11px] text-slate-700">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">output #{item.id}</span>
+                          <span className="text-slate-500">
+                            {item.width > 0 && item.height > 0 ? `${item.width}x${item.height}` : "-"} · {formatBytes(item.size_bytes)}
+                          </span>
+                        </div>
+                        <div className="text-slate-500">proposal #{item.proposal_id || "-"}</div>
+                        <div>
+                          AI3：{reviewStatusLabel(item.review?.final_recommendation)}
+                          {typeof item.review?.semantic_verdict === "number"
+                            ? ` · semantic ${formatScore(item.review.semantic_verdict)}`
+                            : ""}
+                        </div>
+                        <div>
+                          Eval：overall {formatScore(item.evaluation?.overall_score)} · clarity {formatScore(item.evaluation?.clarity_score)} · loop{" "}
+                          {formatScore(item.evaluation?.loop_score)}
+                        </div>
+                        <div className="truncate text-slate-500" title={item.review?.diagnostic_reason || ""}>
+                          语义说明：{item.review?.diagnostic_reason || "-"}
+                        </div>
+                        <div className="text-slate-500">
+                          Gifsicle：
+                          {item.optimization?.attempted
+                            ? item.optimization?.applied
+                              ? `已应用 · ${(Number(item.optimization.saved_ratio || 0) * 100).toFixed(2)}% · ${formatBytes(item.optimization.saved_bytes)}`
+                              : `尝试未生效${item.optimization?.reason ? ` · ${item.optimization.reason}` : ""}${
+                                  item.optimization?.error ? ` · ${item.optimization.error}` : ""
+                                }`
+                            : item.optimization?.enabled
+                              ? "已启用（本产物未触发）"
+                              : "未启用"}
+                        </div>
+                        <div className="truncate text-slate-400" title={item.qiniu_key}>
+                          key：{item.qiniu_key}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : null}
@@ -3913,6 +5610,132 @@ export default function AdminUserVideoJobsPage() {
                   need_manual_review: {detail.ai_gif_review_status_counts?.need_manual_review || 0}
                 </span>
               </div>
+              <div className="mb-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                  人工复核决策（ABC-B）
+                </div>
+                <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr]">
+                  <input
+                    value={manualDecisionOutputIDInput}
+                    onChange={(event) => setManualDecisionOutputIDInput(event.target.value)}
+                    placeholder="output_id"
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                  />
+                  <input
+                    value={manualDecisionProposalIDInput}
+                    onChange={(event) => setManualDecisionProposalIDInput(event.target.value)}
+                    placeholder="proposal_id（可选）"
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                  />
+                  <select
+                    value={manualDecisionStatus}
+                    onChange={(event) =>
+                      setManualDecisionStatus(
+                        (event.target.value as (typeof REVIEW_STATUS_FILTER_OPTIONS)[number]) || "deliver"
+                      )
+                    }
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-emerald-500"
+                  >
+                    <option value="deliver">deliver</option>
+                    <option value="keep_internal">keep_internal</option>
+                    <option value="reject">reject</option>
+                    <option value="need_manual_review">need_manual_review</option>
+                  </select>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-[1fr_2fr_auto]">
+                  <input
+                    value={manualDecisionReason}
+                    onChange={(event) => setManualDecisionReason(event.target.value)}
+                    placeholder="reason（可选）"
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                  />
+                  <input
+                    value={manualDecisionNotes}
+                    onChange={(event) => setManualDecisionNotes(event.target.value)}
+                    placeholder="notes（可选）"
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={manualDecisionSubmitting}
+                    onClick={() => {
+                      void submitManualGIFReviewDecision();
+                    }}
+                    className="rounded-lg border border-emerald-200 bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {manualDecisionSubmitting ? "提交中..." : "提交人工决策"}
+                  </button>
+                </div>
+                {detailGIFMainOutputs.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {detailGIFMainOutputs.slice(0, 12).map((item) => (
+                      <button
+                        key={`manual-output-${item.id}`}
+                        type="button"
+                        onClick={() => {
+                          setManualDecisionOutputIDInput(String(item.id));
+                          if (item.proposal_id && item.proposal_id > 0) {
+                            setManualDecisionProposalIDInput(String(item.proposal_id));
+                          }
+                        }}
+                        className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                        title={item.qiniu_key}
+                      >
+                        output #{item.id}{item.proposal_id ? ` / proposal #${item.proposal_id}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold text-slate-600">批量人工决策（一次多 output）</div>
+                    <button
+                      type="button"
+                      disabled={manualDecisionBatchSubmitting || !detailGIFMainOutputs.length}
+                      onClick={() => {
+                        const lines = detailGIFMainOutputs
+                          .slice(0, 50)
+                          .map(
+                            (item) =>
+                              `${item.id},${item.proposal_id || ""},need_manual_review,manual_batch_seed,`
+                          );
+                        setManualDecisionBatchInput(
+                          ["output_id,proposal_id,decision,reason,notes", ...lines].join("\n")
+                        );
+                      }}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      用当前产物填充模板
+                    </button>
+                  </div>
+                  <textarea
+                    value={manualDecisionBatchInput}
+                    onChange={(event) => setManualDecisionBatchInput(event.target.value)}
+                    placeholder={
+                      "支持 CSV/TSV，每行一个决策：\noutput_id,proposal_id,decision,reason,notes\n123,88,deliver,manual_keep,ok"
+                    }
+                    className="h-24 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <div>
+                      解析：{manualDecisionBatchParsed.items.length} 条
+                      {manualDecisionBatchParsed.errors.length ? (
+                        <span className="ml-2 text-rose-600">错误：{manualDecisionBatchParsed.errors[0]}</span>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={manualDecisionBatchSubmitting}
+                      onClick={() => {
+                        void submitBatchManualGIFReviewDecisions();
+                      }}
+                      className="rounded-lg border border-emerald-200 bg-emerald-600 px-3 py-1 text-[11px] text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {manualDecisionBatchSubmitting ? "批量提交中..." : "提交批量人工决策"}
+                    </button>
+                  </div>
+                </div>
+              </div>
               <div className="max-h-72 overflow-auto rounded-2xl border border-slate-100">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500">
@@ -3954,6 +5777,98 @@ export default function AdminUserVideoJobsPage() {
                     ) : null}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-violet-700">
+                审计链明细（评测 / 反馈 / 重渲染）
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-xl border border-violet-100 bg-white p-2">
+                  <div className="mb-1 text-[11px] font-semibold text-slate-600">评测（最近）</div>
+                  <div className="max-h-44 overflow-auto rounded border border-slate-100">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-2 py-1">output</th>
+                          <th className="px-2 py-1">overall</th>
+                          <th className="px-2 py-1">时间</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {detailAuditEvaluationRows.slice(0, 10).map((item) => (
+                          <tr key={`audit-eval-${item.id}`}>
+                            <td className="px-2 py-1">{item.output_id || "-"}</td>
+                            <td className="px-2 py-1">{formatScore(item.overall_score)}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{formatTime(item.created_at)}</td>
+                          </tr>
+                        ))}
+                        {!detailAuditEvaluationRows.length ? (
+                          <tr>
+                            <td className="px-2 py-3 text-center text-slate-400" colSpan={3}>暂无</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-2">
+                  <div className="mb-1 text-[11px] font-semibold text-slate-600">反馈（最近）</div>
+                  <div className="max-h-44 overflow-auto rounded border border-slate-100">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-2 py-1">output</th>
+                          <th className="px-2 py-1">action</th>
+                          <th className="px-2 py-1">时间</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {detailAuditFeedbackRows.slice(0, 10).map((item) => (
+                          <tr key={`audit-feedback-${item.id}`}>
+                            <td className="px-2 py-1">{item.output_id || "-"}</td>
+                            <td className="px-2 py-1">{item.action || "-"}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{formatTime(item.created_at)}</td>
+                          </tr>
+                        ))}
+                        {!detailAuditFeedbackRows.length ? (
+                          <tr>
+                            <td className="px-2 py-3 text-center text-slate-400" colSpan={3}>暂无</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-2">
+                  <div className="mb-1 text-[11px] font-semibold text-slate-600">重渲染记录（最近）</div>
+                  <div className="max-h-44 overflow-auto rounded border border-slate-100">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-2 py-1">proposal</th>
+                          <th className="px-2 py-1">状态</th>
+                          <th className="px-2 py-1">时间</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {detailAuditRerenderRows.slice(0, 10).map((item, idx) => (
+                          <tr key={`audit-rerender-${idx}-${item.review_id || 0}`}>
+                            <td className="px-2 py-1">{item.proposal_id || "-"}</td>
+                            <td className="px-2 py-1">{reviewStatusLabel(item.recommendation)}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{formatTime(item.created_at)}</td>
+                          </tr>
+                        ))}
+                        {!detailAuditRerenderRows.length ? (
+                          <tr>
+                            <td className="px-2 py-3 text-center text-slate-400" colSpan={3}>暂无</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
 

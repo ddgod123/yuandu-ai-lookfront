@@ -27,12 +27,18 @@ type VideoQualitySetting = {
   gif_default_max_colors: number;
   gif_dither_mode: string;
   gif_target_size_kb: number;
+  gif_gifsicle_enabled: boolean;
+  gif_gifsicle_level: number;
+  gif_gifsicle_skip_below_kb: number;
+  gif_gifsicle_min_gain_ratio: number;
   gif_loop_tune_enabled: boolean;
   gif_loop_tune_min_enable_sec: number;
   gif_loop_tune_min_improvement: number;
   gif_loop_tune_motion_target: number;
   gif_loop_tune_prefer_duration_sec: number;
   gif_candidate_max_outputs: number;
+  gif_candidate_long_video_max_outputs: number;
+  gif_candidate_ultra_video_max_outputs: number;
   gif_candidate_confidence_threshold: number;
   gif_candidate_dedup_iou_threshold: number;
   webp_target_size_kb: number;
@@ -137,6 +143,68 @@ type VideoJobsOverviewFallbackResponse = {
   feedback_rollout_audit_logs?: VideoJobsOverviewRolloutAudit[];
 };
 
+type PromptTemplateStage = "ai1" | "ai2" | "scoring" | "ai3";
+type PromptTemplateLayer = "editable" | "fixed";
+type PromptTemplateTabKey = "ai1" | "ai2" | "scoring" | "ai3";
+type PromptTemplateFormat = "all" | "gif" | "webp" | "jpg" | "png" | "live";
+
+type AdminVideoAIPromptTemplateItem = {
+  id: number;
+  format: PromptTemplateFormat | string;
+  stage: PromptTemplateStage | string;
+  layer: PromptTemplateLayer | string;
+  template_text: string;
+  template_json_schema?: Record<string, unknown>;
+  enabled: boolean;
+  version: string;
+  is_active: boolean;
+  resolved_from?: string;
+  updated_at?: string;
+};
+
+type AdminVideoAIPromptTemplatesResponse = {
+  format?: PromptTemplateFormat | string;
+  items?: AdminVideoAIPromptTemplateItem[];
+};
+
+type AdminVideoAIPromptTemplateAuditItem = {
+  id: number;
+  template_id?: number;
+  format?: string;
+  stage?: string;
+  layer?: string;
+  action?: string;
+  reason?: string;
+  operator_admin_id?: number;
+  created_at?: string;
+};
+
+type AdminVideoAIPromptTemplateAuditsResponse = {
+  items?: AdminVideoAIPromptTemplateAuditItem[];
+};
+
+type AdminVideoAIPromptTemplateVersionItem = {
+  id: number;
+  format?: string;
+  stage?: string;
+  layer?: string;
+  version?: string;
+  enabled?: boolean;
+  is_active?: boolean;
+  created_by?: number;
+  updated_by?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type AdminVideoAIPromptTemplateVersionsResponse = {
+  format?: string;
+  stage?: string;
+  layer?: string;
+  resolved_from?: string;
+  items?: AdminVideoAIPromptTemplateVersionItem[];
+};
+
 const DEFAULT_FORM: VideoQualitySetting = {
   min_brightness: 16,
   max_brightness: 244,
@@ -160,12 +228,18 @@ const DEFAULT_FORM: VideoQualitySetting = {
   gif_default_max_colors: 128,
   gif_dither_mode: "sierra2_4a",
   gif_target_size_kb: 2048,
+  gif_gifsicle_enabled: true,
+  gif_gifsicle_level: 2,
+  gif_gifsicle_skip_below_kb: 256,
+  gif_gifsicle_min_gain_ratio: 0.02,
   gif_loop_tune_enabled: true,
   gif_loop_tune_min_enable_sec: 1.4,
   gif_loop_tune_min_improvement: 0.04,
   gif_loop_tune_motion_target: 0.22,
   gif_loop_tune_prefer_duration_sec: 2.4,
   gif_candidate_max_outputs: 3,
+  gif_candidate_long_video_max_outputs: 3,
+  gif_candidate_ultra_video_max_outputs: 2,
   gif_candidate_confidence_threshold: 0.35,
   gif_candidate_dedup_iou_threshold: 0.45,
   webp_target_size_kb: 1536,
@@ -225,6 +299,22 @@ const PROFILE_OPTIONS = [
   { value: "size", label: "体积优先" },
 ];
 
+const TEMPLATE_FORMAT_OPTIONS: Array<{ value: PromptTemplateFormat; label: string }> = [
+  { value: "all", label: "全局默认（all）" },
+  { value: "gif", label: "GIF" },
+  { value: "webp", label: "WebP" },
+  { value: "jpg", label: "JPG" },
+  { value: "png", label: "PNG" },
+  { value: "live", label: "Live" },
+];
+
+const TEMPLATE_TAB_OPTIONS: Array<{ value: PromptTemplateTabKey; label: string; desc: string }> = [
+  { value: "ai1", label: "AI1 模板", desc: "可编辑层 + 固定层" },
+  { value: "ai2", label: "AI2 模板", desc: "固定层（提名阶段）" },
+  { value: "scoring", label: "打分指标系统", desc: "质量参数 + 固定评分说明" },
+  { value: "ai3", label: "AI3 模板", desc: "固定层（复审阶段）" },
+];
+
 function toNumber(value: string, fallback: number) {
   const raw = value.trim();
   if (!raw) return fallback;
@@ -251,6 +341,30 @@ function validateBeforeSave(form: VideoQualitySetting): string | null {
   }
   if (form.live_cover_guard_min_total < form.live_cover_scene_min_samples) {
     return "Live 护栏阈值非法：live_cover_guard_min_total 必须 >= live_cover_scene_min_samples。";
+  }
+  if (form.gif_candidate_max_outputs < 1 || form.gif_candidate_max_outputs > 6) {
+    return "GIF 最大产出数非法：gif_candidate_max_outputs 必须在 1~6。";
+  }
+  if (form.gif_candidate_long_video_max_outputs < 1 || form.gif_candidate_long_video_max_outputs > 6) {
+    return "长视频最大产出数非法：gif_candidate_long_video_max_outputs 必须在 1~6。";
+  }
+  if (form.gif_candidate_ultra_video_max_outputs < 1 || form.gif_candidate_ultra_video_max_outputs > 6) {
+    return "超长视频最大产出数非法：gif_candidate_ultra_video_max_outputs 必须在 1~6。";
+  }
+  if (form.gif_candidate_long_video_max_outputs > form.gif_candidate_max_outputs) {
+    return "长视频最大产出数非法：必须 <= GIF 最大产出数。";
+  }
+  if (form.gif_candidate_ultra_video_max_outputs > form.gif_candidate_long_video_max_outputs) {
+    return "超长视频最大产出数非法：必须 <= 长视频最大产出数。";
+  }
+  if (form.gif_gifsicle_level < 1 || form.gif_gifsicle_level > 3) {
+    return "GIF Gifsicle 压缩等级非法：gif_gifsicle_level 必须在 1~3。";
+  }
+  if (form.gif_gifsicle_skip_below_kb < 0 || form.gif_gifsicle_skip_below_kb > 4096) {
+    return "GIF Gifsicle 跳过阈值非法：gif_gifsicle_skip_below_kb 必须在 0~4096。";
+  }
+  if (form.gif_gifsicle_min_gain_ratio < 0 || form.gif_gifsicle_min_gain_ratio > 0.5) {
+    return "GIF Gifsicle 最小收益阈值非法：gif_gifsicle_min_gain_ratio 必须在 0~0.5。";
   }
   if (
     form.highlight_feedback_position_weight < 0 ||
@@ -355,6 +469,32 @@ function rolloutVerdictMeta(value?: string) {
   }
 }
 
+function normalizePromptTemplateFormat(value?: string): PromptTemplateFormat {
+  const lower = (value || "").trim().toLowerCase();
+  switch (lower) {
+    case "gif":
+    case "webp":
+    case "jpg":
+    case "png":
+    case "live":
+      return lower;
+    default:
+      return "all";
+  }
+}
+
+function normalizePromptTemplateStage(value?: string): PromptTemplateStage | "" {
+  const lower = (value || "").trim().toLowerCase();
+  if (lower === "ai1" || lower === "ai2" || lower === "ai3" || lower === "scoring") return lower;
+  return "";
+}
+
+function normalizePromptTemplateLayer(value?: string): PromptTemplateLayer | "" {
+  const lower = (value || "").trim().toLowerCase();
+  if (lower === "editable" || lower === "fixed") return lower;
+  return "";
+}
+
 function mapFallbackAuditToEffectCard(item: VideoJobsOverviewRolloutAudit): VideoQualityRolloutEffectCard {
   return {
     audit_id: item.id || 0,
@@ -384,6 +524,23 @@ export default function Page() {
   const [rolloutEffectsLoading, setRolloutEffectsLoading] = useState(false);
   const [rolloutEffectsError, setRolloutEffectsError] = useState<string | null>(null);
   const [rolloutEffectsFallbackUsed, setRolloutEffectsFallbackUsed] = useState(false);
+  const [templateFormat, setTemplateFormat] = useState<PromptTemplateFormat>("all");
+  const [templateTab, setTemplateTab] = useState<PromptTemplateTabKey>("ai1");
+  const [templateItems, setTemplateItems] = useState<AdminVideoAIPromptTemplateItem[]>([]);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
+  const [templateAudits, setTemplateAudits] = useState<AdminVideoAIPromptTemplateAuditItem[]>([]);
+  const [templateAuditsLoading, setTemplateAuditsLoading] = useState(false);
+  const [templateVersions, setTemplateVersions] = useState<AdminVideoAIPromptTemplateVersionItem[]>([]);
+  const [templateVersionsResolvedFrom, setTemplateVersionsResolvedFrom] = useState("");
+  const [templateVersionsLoading, setTemplateVersionsLoading] = useState(false);
+  const [templateActivateSaving, setTemplateActivateSaving] = useState(false);
+  const [selectedVersionID, setSelectedVersionID] = useState<number>(0);
+  const [ai1EditableEnabled, setAi1EditableEnabled] = useState(true);
+  const [ai1EditableVersion, setAi1EditableVersion] = useState("v1");
+  const [ai1EditableText, setAi1EditableText] = useState("");
 
   const dirtyKeys = (() => {
     if (!baseForm) return [] as Array<keyof VideoQualitySetting>;
@@ -392,6 +549,12 @@ export default function Page() {
     });
   })();
   const dirtyCount = dirtyKeys.length;
+
+  const findTemplate = (stage: PromptTemplateStage, layer: PromptTemplateLayer) => {
+    return templateItems.find((item) => {
+      return normalizePromptTemplateStage(item.stage) === stage && normalizePromptTemplateLayer(item.layer) === layer;
+    });
+  };
 
   const applyProfilePreset = (preset: "clarity" | "size") => {
     setForm((prev) => ({
@@ -402,6 +565,177 @@ export default function Page() {
       jpg_profile: preset,
       png_profile: preset,
     }));
+  };
+
+  const loadPromptTemplates = async (format: PromptTemplateFormat) => {
+    setTemplateLoading(true);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates?format=${format}`);
+      if (!res.ok) throw new Error(await parseApiError(res, "加载 AI 模板失败"));
+      const data = (await res.json()) as AdminVideoAIPromptTemplatesResponse;
+      const normalizedItems = Array.isArray(data.items) ? data.items : [];
+      setTemplateItems(normalizedItems);
+      const ai1Editable = normalizedItems.find((item) => {
+        return normalizePromptTemplateStage(item.stage) === "ai1" && normalizePromptTemplateLayer(item.layer) === "editable";
+      });
+      setAi1EditableEnabled(ai1Editable?.enabled ?? true);
+      setAi1EditableVersion((ai1Editable?.version || "v1").trim() || "v1");
+      setAi1EditableText(ai1Editable?.template_text || "");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "加载 AI 模板失败";
+      setTemplateError(message);
+      setTemplateItems([]);
+      setAi1EditableEnabled(true);
+      setAi1EditableVersion("v1");
+      setAi1EditableText("");
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
+  const loadPromptTemplateAudits = async (format: PromptTemplateFormat, tab: PromptTemplateTabKey) => {
+    setTemplateAuditsLoading(true);
+    try {
+      const stage = tab;
+      const layer = tab === "ai1" ? "" : "fixed";
+      const params = new URLSearchParams();
+      params.set("limit", "8");
+      params.set("format", format);
+      params.set("stage", stage);
+      if (layer) params.set("layer", layer);
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates/audits?${params.toString()}`);
+      if (!res.ok) throw new Error(await parseApiError(res, "加载模板变更日志失败"));
+      const data = (await res.json()) as AdminVideoAIPromptTemplateAuditsResponse;
+      setTemplateAudits(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setTemplateAudits([]);
+    } finally {
+      setTemplateAuditsLoading(false);
+    }
+  };
+
+  const loadPromptTemplateVersions = async (format: PromptTemplateFormat, tab: PromptTemplateTabKey) => {
+    const stage = tab;
+    const layer: PromptTemplateLayer = tab === "ai1" ? "fixed" : "fixed";
+    setTemplateVersionsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("format", format);
+      params.set("stage", stage);
+      params.set("layer", layer);
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates/versions?${params.toString()}`);
+      if (!res.ok) throw new Error(await parseApiError(res, "加载模板版本失败"));
+      const data = (await res.json()) as AdminVideoAIPromptTemplateVersionsResponse;
+      const versions = Array.isArray(data.items) ? data.items : [];
+      setTemplateVersions(versions);
+      setTemplateVersionsResolvedFrom((data.resolved_from || "").toLowerCase());
+      const active = versions.find((item) => !!item.is_active);
+      setSelectedVersionID(active?.id || versions[0]?.id || 0);
+    } catch {
+      setTemplateVersions([]);
+      setTemplateVersionsResolvedFrom("");
+      setSelectedVersionID(0);
+    } finally {
+      setTemplateVersionsLoading(false);
+    }
+  };
+
+  const activateFixedTemplateVersion = async () => {
+    const stage = templateTab;
+    const layer = "fixed";
+    if (!selectedVersionID) {
+      setTemplateError("请选择要切换的版本。");
+      return;
+    }
+    if (templateVersionsResolvedFrom && templateVersionsResolvedFrom !== templateFormat) {
+      setTemplateError(`当前展示为 ${templateVersionsResolvedFrom} 回退版本，不能在 ${templateFormat} 作用域直接切换。`);
+      return;
+    }
+    setTemplateActivateSaving(true);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: templateFormat,
+          stage,
+          layer,
+          template_id: selectedVersionID,
+          reason: "admin_activate_from_quality_page",
+        }),
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "切换模板版本失败"));
+      await loadPromptTemplateVersions(templateFormat, templateTab);
+      await loadPromptTemplates(templateFormat);
+      await loadPromptTemplateAudits(templateFormat, templateTab);
+      setTemplateSuccess(`已切换 ${stage.toUpperCase()} 固定层版本。`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "切换模板版本失败";
+      setTemplateError(message);
+    } finally {
+      setTemplateActivateSaving(false);
+    }
+  };
+
+  const saveAI1EditableTemplate = async () => {
+    if (!ai1EditableVersion.trim()) {
+      setTemplateError("AI1 可编辑层版本不能为空。");
+      setTemplateSuccess(null);
+      return;
+    }
+    if (ai1EditableVersion.trim().length > 64) {
+      setTemplateError("AI1 可编辑层版本长度不能超过 64 个字符。");
+      setTemplateSuccess(null);
+      return;
+    }
+    if (ai1EditableText.length > 16000) {
+      setTemplateError("AI1 可编辑层模板正文不能超过 16000 个字符。");
+      setTemplateSuccess(null);
+      return;
+    }
+    setTemplateSaving(true);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      const payload = {
+        format: templateFormat,
+        items: [
+          {
+            stage: "ai1",
+            layer: "editable",
+            enabled: ai1EditableEnabled,
+            version: ai1EditableVersion.trim(),
+            template_text: ai1EditableText,
+          },
+        ],
+      };
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "保存 AI1 可编辑层失败"));
+      const data = (await res.json()) as AdminVideoAIPromptTemplatesResponse;
+      const normalizedItems = Array.isArray(data.items) ? data.items : [];
+      setTemplateItems(normalizedItems);
+      const updated = normalizedItems.find((item) => {
+        return normalizePromptTemplateStage(item.stage) === "ai1" && normalizePromptTemplateLayer(item.layer) === "editable";
+      });
+      setAi1EditableEnabled(updated?.enabled ?? ai1EditableEnabled);
+      setAi1EditableVersion((updated?.version || ai1EditableVersion).trim() || "v1");
+      setAi1EditableText(updated?.template_text ?? ai1EditableText);
+      await loadPromptTemplateAudits(templateFormat, templateTab);
+      setTemplateSuccess(`AI1 可编辑层模板已保存（format=${templateFormat}）。`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "保存 AI1 可编辑层失败";
+      setTemplateError(message);
+    } finally {
+      setTemplateSaving(false);
+    }
   };
 
   const fetchRolloutEffects = async (limit = 6): Promise<{ items: VideoQualityRolloutEffectCard[]; fallbackUsed: boolean }> => {
@@ -481,6 +815,18 @@ export default function Page() {
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    void loadPromptTemplates(templateFormat);
+  }, [templateFormat]);
+
+  useEffect(() => {
+    void loadPromptTemplateAudits(templateFormat, templateTab);
+  }, [templateFormat, templateTab]);
+
+  useEffect(() => {
+    void loadPromptTemplateVersions(templateFormat, templateTab);
+  }, [templateFormat, templateTab]);
 
   const save = async () => {
     if (!baseForm) {
@@ -567,62 +913,271 @@ export default function Page() {
       ) : null}
 
       <div className="space-y-4 rounded-3xl border border-indigo-100 bg-indigo-50/40 p-6 shadow-sm">
-        <div>
-          <h3 className="text-sm font-bold text-indigo-800">AI1 运营指令模板（Prompt Director）</h3>
-          <p className="mt-1 text-xs text-indigo-700/80">
-            运营可直接编辑 AI1 前置指令。任务执行时会注入该模板，影响 AI1 的任务简报输出方向。
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <label className="space-y-1 text-xs text-indigo-700">
-            <span>启用运营模板</span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-indigo-800">AI 模板中心（AI1 / AI2 / 评分 / AI3）</h3>
+            <p className="mt-1 text-xs text-indigo-700/80">
+              支持按格式切换。AI1 提供“可编辑层 + 固定层”；AI2、评分、AI3 采用固定层模板。
+            </p>
+          </div>
+          <label className="text-xs text-indigo-700">
+            <span className="mb-1 block">格式范围</span>
             <select
-              value={form.ai_director_operator_enabled ? "1" : "0"}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  ai_director_operator_enabled: e.target.value === "1",
-                }))
-              }
-              className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+              value={templateFormat}
+              onChange={(e) => setTemplateFormat(normalizePromptTemplateFormat(e.target.value))}
+              className="min-w-[180px] rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
             >
-              <option value="1">开启</option>
-              <option value="0">关闭</option>
+              {TEMPLATE_FORMAT_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </label>
-          <label className="space-y-1 text-xs text-indigo-700 md:col-span-2">
-            <span>模板版本</span>
-            <input
-              type="text"
-              value={form.ai_director_operator_instruction_version}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  ai_director_operator_instruction_version: e.target.value,
-                }))
-              }
-              className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
-              placeholder="例如：v1 / 20260318-alpha"
-            />
-          </label>
         </div>
-        <label className="block space-y-1 text-xs text-indigo-700">
-          <span>运营模板正文（最多 4000 字）</span>
-          <textarea
-            value={form.ai_director_operator_instruction}
-            onChange={(e) =>
-              setForm((prev) => ({
-                ...prev,
-                ai_director_operator_instruction: e.target.value,
-              }))
-            }
-            rows={6}
-            className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
-            placeholder="示例：优先提名能脱离上下文独立传播的反应镜头；控制单窗口 1.2~3.0 秒；避免转场和低清晰度片段。"
-          />
-        </label>
+
+        <div className="flex flex-wrap gap-2">
+          {TEMPLATE_TAB_OPTIONS.map((item) => {
+            const active = templateTab === item.value;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => setTemplateTab(item.value)}
+                className={
+                  active
+                    ? "rounded-xl border border-indigo-300 bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"
+                    : "rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                }
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {templateError ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">{templateError}</div>
+        ) : null}
+        {templateSuccess ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
+            {templateSuccess}
+          </div>
+        ) : null}
+
+        {templateLoading ? (
+          <div className="rounded-xl border border-indigo-200 bg-white px-4 py-6 text-center text-xs text-indigo-700">
+            模板加载中...
+          </div>
+        ) : null}
+
+        {!templateLoading ? (
+          <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-semibold text-indigo-700">固定层版本切换（只读历史）</div>
+                <div className="mt-1 text-[11px] text-indigo-700/80">
+                  当前标签：{templateTab.toUpperCase()} · 来源作用域：{templateVersionsResolvedFrom || "未配置"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadPromptTemplateVersions(templateFormat, templateTab)}
+                disabled={templateVersionsLoading}
+                className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+              >
+                {templateVersionsLoading ? "刷新中..." : "刷新版本"}
+              </button>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+              <select
+                value={selectedVersionID ? String(selectedVersionID) : ""}
+                onChange={(e) => setSelectedVersionID(Number(e.target.value || 0))}
+                className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+                disabled={templateVersionsLoading || templateVersions.length === 0}
+              >
+                {templateVersions.map((item) => (
+                  <option key={item.id} value={String(item.id)}>
+                    {item.version || `v-${item.id}`} {item.is_active ? "（当前）" : ""} · {formatTime(item.updated_at)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void activateFixedTemplateVersion()}
+                disabled={
+                  templateActivateSaving ||
+                  templateVersionsLoading ||
+                  !selectedVersionID ||
+                  (templateVersionsResolvedFrom !== "" && templateVersionsResolvedFrom !== templateFormat)
+                }
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
+              >
+                {templateActivateSaving ? "切换中..." : "切换为当前版本"}
+              </button>
+            </div>
+            {templateVersionsResolvedFrom !== "" && templateVersionsResolvedFrom !== templateFormat ? (
+              <div className="mt-2 text-[11px] text-amber-700">
+                当前是 {templateVersionsResolvedFrom} 回退版本；若要切换，请先切到对应作用域再操作。
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!templateLoading && templateTab === "ai1" ? (
+          <div className="space-y-4 rounded-2xl border border-indigo-200 bg-white p-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="space-y-1 text-xs text-indigo-700">
+                <span>可编辑层开关</span>
+                <select
+                  value={ai1EditableEnabled ? "1" : "0"}
+                  onChange={(e) => setAi1EditableEnabled(e.target.value === "1")}
+                  className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+                >
+                  <option value="1">开启</option>
+                  <option value="0">关闭</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs text-indigo-700 md:col-span-2">
+                <span>可编辑层版本</span>
+                <input
+                  type="text"
+                  value={ai1EditableVersion}
+                  onChange={(e) => setAi1EditableVersion(e.target.value)}
+                  className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+                  placeholder="例如：v2 / 20260318-alpha"
+                />
+              </label>
+            </div>
+
+            <label className="block space-y-1 text-xs text-indigo-700">
+              <span>AI1 可编辑层模板正文</span>
+              <textarea
+                value={ai1EditableText}
+                onChange={(e) => setAi1EditableText(e.target.value)}
+                rows={8}
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+                placeholder="在这里编辑给 AI1 的运营策略指令（结构化要求、目标、约束、偏好）。"
+              />
+            </label>
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => void saveAI1EditableTemplate()}
+                disabled={templateSaving}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
+              >
+                {templateSaving ? "保存中..." : "保存 AI1 可编辑层"}
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-700">
+              <div className="font-semibold">AI1 固定层（只读）</div>
+              <div className="mt-1 text-[11px] text-indigo-700/80">
+                来源：{findTemplate("ai1", "fixed")?.resolved_from || "未配置"}
+                {findTemplate("ai1", "fixed")?.version ? ` · 版本 ${findTemplate("ai1", "fixed")?.version}` : ""}
+              </div>
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-[11px] leading-5 text-slate-700">
+                {findTemplate("ai1", "fixed")?.template_text || "（未配置）"}
+              </pre>
+            </div>
+          </div>
+        ) : null}
+
+        {!templateLoading && templateTab === "ai2" ? (
+          <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+            <div className="text-xs font-semibold text-indigo-700">AI2 固定层模板（提名阶段）</div>
+            <div className="mt-1 text-[11px] text-indigo-700/80">
+              来源：{findTemplate("ai2", "fixed")?.resolved_from || "未配置"}
+              {findTemplate("ai2", "fixed")?.version ? ` · 版本 ${findTemplate("ai2", "fixed")?.version}` : ""}
+            </div>
+            <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-[11px] leading-5 text-slate-700">
+              {findTemplate("ai2", "fixed")?.template_text || "（未配置）"}
+            </pre>
+          </div>
+        ) : null}
+
+        {!templateLoading && templateTab === "scoring" ? (
+          <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+            <div className="text-xs font-semibold text-indigo-700">评分系统固定层说明</div>
+            <div className="mt-1 text-[11px] text-indigo-700/80">
+              来源：{findTemplate("scoring", "fixed")?.resolved_from || "未配置"}
+              {findTemplate("scoring", "fixed")?.version
+                ? ` · 版本 ${findTemplate("scoring", "fixed")?.version}`
+                : ""}
+            </div>
+            <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-[11px] leading-5 text-slate-700">
+              {findTemplate("scoring", "fixed")?.template_text || "（未配置）"}
+            </pre>
+          </div>
+        ) : null}
+
+        {!templateLoading && templateTab === "ai3" ? (
+          <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+            <div className="text-xs font-semibold text-indigo-700">AI3 固定层模板（复审阶段）</div>
+            <div className="mt-1 text-[11px] text-indigo-700/80">
+              来源：{findTemplate("ai3", "fixed")?.resolved_from || "未配置"}
+              {findTemplate("ai3", "fixed")?.version ? ` · 版本 ${findTemplate("ai3", "fixed")?.version}` : ""}
+            </div>
+            <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-[11px] leading-5 text-slate-700">
+              {findTemplate("ai3", "fixed")?.template_text || "（未配置）"}
+            </pre>
+          </div>
+        ) : null}
+
+        <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold text-indigo-700">模板变更日志（最近 8 条）</div>
+            <button
+              type="button"
+              onClick={() => void loadPromptTemplateAudits(templateFormat, templateTab)}
+              disabled={templateAuditsLoading}
+              className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+            >
+              {templateAuditsLoading ? "刷新中..." : "刷新"}
+            </button>
+          </div>
+          {templateAuditsLoading && !templateAudits.length ? (
+            <div className="mt-2 text-[11px] text-slate-500">加载中...</div>
+          ) : null}
+          {!templateAuditsLoading && !templateAudits.length ? (
+            <div className="mt-2 text-[11px] text-slate-500">暂无日志</div>
+          ) : null}
+          {templateAudits.length ? (
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full text-left text-[11px] text-slate-600">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500">
+                    <th className="px-2 py-1">时间</th>
+                    <th className="px-2 py-1">动作</th>
+                    <th className="px-2 py-1">格式</th>
+                    <th className="px-2 py-1">阶段</th>
+                    <th className="px-2 py-1">层级</th>
+                    <th className="px-2 py-1">管理员</th>
+                    <th className="px-2 py-1">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templateAudits.map((item) => (
+                    <tr key={item.id} className="border-b border-slate-100">
+                      <td className="px-2 py-1">{formatTime(item.created_at)}</td>
+                      <td className="px-2 py-1">{(item.action || "-").toLowerCase()}</td>
+                      <td className="px-2 py-1">{(item.format || "-").toLowerCase()}</td>
+                      <td className="px-2 py-1">{(item.stage || "-").toLowerCase()}</td>
+                      <td className="px-2 py-1">{(item.layer || "-").toLowerCase()}</td>
+                      <td className="px-2 py-1">#{item.operator_admin_id || 0}</td>
+                      <td className="px-2 py-1">{item.reason || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
       </div>
 
+      {templateTab === "scoring" ? (
+        <>
       <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1684,6 +2239,44 @@ export default function Page() {
               />
             </label>
             <label className="space-y-1 text-xs text-slate-500">
+              <span>长视频最大产出数（≥60s）</span>
+              <input
+                type="number"
+                min={1}
+                max={6}
+                value={form.gif_candidate_long_video_max_outputs}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_candidate_long_video_max_outputs: toNumber(
+                      e.target.value,
+                      prev.gif_candidate_long_video_max_outputs
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>超长视频最大产出数（≥150s）</span>
+              <input
+                type="number"
+                min={1}
+                max={6}
+                value={form.gif_candidate_ultra_video_max_outputs}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_candidate_ultra_video_max_outputs: toNumber(
+                      e.target.value,
+                      prev.gif_candidate_ultra_video_max_outputs
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
               <span>GIF 候选置信阈值（0 关闭）</span>
               <input
                 type="number"
@@ -1810,6 +2403,63 @@ export default function Page() {
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
               />
             </label>
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600 md:col-span-2">
+              <input
+                type="checkbox"
+                checked={form.gif_gifsicle_enabled}
+                onChange={(e) => setForm((prev) => ({ ...prev, gif_gifsicle_enabled: e.target.checked }))}
+              />
+              启用 Gifsicle 二次压缩（后处理）
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>Gifsicle 压缩等级（1~3）</span>
+              <input
+                type="number"
+                min={1}
+                max={3}
+                value={form.gif_gifsicle_level}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_gifsicle_level: toNumber(e.target.value, prev.gif_gifsicle_level),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>Gifsicle 跳过阈值（KB）</span>
+              <input
+                type="number"
+                min={0}
+                max={4096}
+                value={form.gif_gifsicle_skip_below_kb}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_gifsicle_skip_below_kb: toNumber(e.target.value, prev.gif_gifsicle_skip_below_kb),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>Gifsicle 最小收益阈值（0~0.5）</span>
+              <input
+                type="number"
+                step="0.001"
+                min={0}
+                max={0.5}
+                value={form.gif_gifsicle_min_gain_ratio}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_gifsicle_min_gain_ratio: toNumber(e.target.value, prev.gif_gifsicle_min_gain_ratio),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
             <label className="space-y-1 text-xs text-slate-500">
               <span>WebP 目标体积（KB）</span>
               <input
@@ -1879,6 +2529,12 @@ export default function Page() {
           {updatedAt ? <div className="text-xs text-slate-400">最近更新时间：{updatedAt}</div> : null}
         </div>
       </div>
+        </>
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
+          当前标签页聚焦模板治理；打分阈值与质量参数请切换到「打分指标系统」标签查看与调整。
+        </div>
+      )}
     </div>
   );
 }

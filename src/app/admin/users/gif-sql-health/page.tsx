@@ -44,6 +44,15 @@ type AdminGIFHealthLoopTuneSummary = {
   avg_effective_sec?: number;
 };
 
+type AdminGIFHealthOptimizerSummary = {
+  samples?: number;
+  attempted?: number;
+  applied?: number;
+  applied_rate?: number;
+  avg_saved_ratio?: number;
+  avg_saved_bytes?: number;
+};
+
 type AdminGIFHealthPathSummary = {
   total?: number;
   new_path_prefix_count?: number;
@@ -121,6 +130,7 @@ type AdminGIFHealthReportResponse = {
   jobs?: AdminGIFHealthJobsSummary;
   outputs?: AdminGIFHealthOutputsSummary;
   loop_tune?: AdminGIFHealthLoopTuneSummary;
+  optimizer?: AdminGIFHealthOptimizerSummary;
   path?: AdminGIFHealthPathSummary;
   top_failures?: AdminGIFHealthFailureReason[];
   consistency?: AdminGIFHealthConsistencySummary;
@@ -563,6 +573,16 @@ export default function AdminGIFSQLHealthPage() {
               <MetricCard title="Loop回退率" value={formatPercent(report.loop_tune?.fallback_rate)} sub={`样本 ${formatInt(report.loop_tune?.samples)}`} />
               <MetricCard title="平均分辨率" value={`${formatDecimal(report.outputs?.avg_width, 0)} × ${formatDecimal(report.outputs?.avg_height, 0)}`} sub={`均值体积 ${formatInt(report.outputs?.avg_size_bytes)}B`} />
               <MetricCard title="Loop质量" value={`${formatDecimal(report.loop_tune?.avg_loop_closure, 3)} / ${formatDecimal(report.loop_tune?.avg_motion_mean, 3)}`} sub={`score ${formatDecimal(report.loop_tune?.avg_score, 3)} · sec ${formatDecimal(report.loop_tune?.avg_effective_sec, 2)}`} />
+              <MetricCard
+                title="Gifsicle 应用率"
+                value={formatPercent(report.optimizer?.applied_rate)}
+                sub={`applied ${formatInt(report.optimizer?.applied)} / attempted ${formatInt(report.optimizer?.attempted)}`}
+              />
+              <MetricCard
+                title="Gifsicle 平均节省"
+                value={formatPercent(report.optimizer?.avg_saved_ratio)}
+                sub={`均值 ${formatDecimal(report.optimizer?.avg_saved_bytes, 0)}B · 样本 ${formatInt(report.optimizer?.samples)}`}
+              />
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
