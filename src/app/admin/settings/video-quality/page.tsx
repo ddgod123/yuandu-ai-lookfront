@@ -84,6 +84,11 @@ type VideoQualitySetting = {
   ai_director_operator_instruction: string;
   ai_director_operator_instruction_version: string;
   ai_director_operator_enabled: boolean;
+  ai_director_constraint_override_enabled: boolean;
+  ai_director_count_expand_ratio: number;
+  ai_director_duration_expand_ratio: number;
+  ai_director_count_absolute_cap: number;
+  ai_director_duration_absolute_cap_sec: number;
   updated_at?: string;
 };
 
@@ -285,6 +290,11 @@ const DEFAULT_FORM: VideoQualitySetting = {
   ai_director_operator_instruction: "",
   ai_director_operator_instruction_version: "v1",
   ai_director_operator_enabled: true,
+  ai_director_constraint_override_enabled: false,
+  ai_director_count_expand_ratio: 0.2,
+  ai_director_duration_expand_ratio: 0.2,
+  ai_director_count_absolute_cap: 10,
+  ai_director_duration_absolute_cap_sec: 6,
 };
 
 const DITHER_OPTIONS = [
@@ -323,6 +333,20 @@ function toNumber(value: string, fallback: number) {
   return n;
 }
 
+function buildAI1ConstraintVariablePayload(form: VideoQualitySetting) {
+  return {
+    ai_director_constraint_override_enabled: !!form.ai_director_constraint_override_enabled,
+    ai_director_count_expand_ratio: form.ai_director_count_expand_ratio,
+    ai_director_duration_expand_ratio: form.ai_director_duration_expand_ratio,
+    ai_director_count_absolute_cap: form.ai_director_count_absolute_cap,
+    ai_director_duration_absolute_cap_sec: form.ai_director_duration_absolute_cap_sec,
+  };
+}
+
+function formatAI1ConstraintVariableJSON(form: VideoQualitySetting) {
+  return JSON.stringify(buildAI1ConstraintVariablePayload(form), null, 2);
+}
+
 function validateBeforeSave(form: VideoQualitySetting): string | null {
   if (!form.ai_director_operator_instruction_version.trim()) {
     return "AI1 运营指令版本不能为空。";
@@ -342,20 +366,35 @@ function validateBeforeSave(form: VideoQualitySetting): string | null {
   if (form.live_cover_guard_min_total < form.live_cover_scene_min_samples) {
     return "Live 护栏阈值非法：live_cover_guard_min_total 必须 >= live_cover_scene_min_samples。";
   }
-  if (form.gif_candidate_max_outputs < 1 || form.gif_candidate_max_outputs > 6) {
-    return "GIF 最大产出数非法：gif_candidate_max_outputs 必须在 1~6。";
+  if (form.gif_candidate_max_outputs < 1 || form.gif_candidate_max_outputs > 20) {
+    return "GIF 最大产出数非法：gif_candidate_max_outputs 必须在 1~20。";
   }
-  if (form.gif_candidate_long_video_max_outputs < 1 || form.gif_candidate_long_video_max_outputs > 6) {
-    return "长视频最大产出数非法：gif_candidate_long_video_max_outputs 必须在 1~6。";
+  if (form.gif_candidate_long_video_max_outputs < 1 || form.gif_candidate_long_video_max_outputs > 20) {
+    return "长视频最大产出数非法：gif_candidate_long_video_max_outputs 必须在 1~20。";
   }
-  if (form.gif_candidate_ultra_video_max_outputs < 1 || form.gif_candidate_ultra_video_max_outputs > 6) {
-    return "超长视频最大产出数非法：gif_candidate_ultra_video_max_outputs 必须在 1~6。";
+  if (form.gif_candidate_ultra_video_max_outputs < 1 || form.gif_candidate_ultra_video_max_outputs > 20) {
+    return "超长视频最大产出数非法：gif_candidate_ultra_video_max_outputs 必须在 1~20。";
   }
   if (form.gif_candidate_long_video_max_outputs > form.gif_candidate_max_outputs) {
     return "长视频最大产出数非法：必须 <= GIF 最大产出数。";
   }
   if (form.gif_candidate_ultra_video_max_outputs > form.gif_candidate_long_video_max_outputs) {
     return "超长视频最大产出数非法：必须 <= 长视频最大产出数。";
+  }
+  if (form.ai_director_count_expand_ratio < 0 || form.ai_director_count_expand_ratio > 3) {
+    return "AI1 数量扩张比例非法：ai_director_count_expand_ratio 必须在 0~3。";
+  }
+  if (form.ai_director_duration_expand_ratio < 0 || form.ai_director_duration_expand_ratio > 3) {
+    return "AI1 时长扩张比例非法：ai_director_duration_expand_ratio 必须在 0~3。";
+  }
+  if (form.ai_director_count_absolute_cap < 1 || form.ai_director_count_absolute_cap > 20) {
+    return "AI1 数量绝对上限非法：ai_director_count_absolute_cap 必须在 1~20。";
+  }
+  if (form.ai_director_count_absolute_cap < form.gif_candidate_max_outputs) {
+    return "AI1 数量绝对上限非法：必须 >= GIF 最大产出数。";
+  }
+  if (form.ai_director_duration_absolute_cap_sec < 2 || form.ai_director_duration_absolute_cap_sec > 12) {
+    return "AI1 时长绝对上限非法：ai_director_duration_absolute_cap_sec 必须在 2~12 秒。";
   }
   if (form.gif_gifsicle_level < 1 || form.gif_gifsicle_level > 3) {
     return "GIF Gifsicle 压缩等级非法：gif_gifsicle_level 必须在 1~3。";
@@ -541,6 +580,9 @@ export default function Page() {
   const [ai1EditableEnabled, setAi1EditableEnabled] = useState(true);
   const [ai1EditableVersion, setAi1EditableVersion] = useState("v1");
   const [ai1EditableText, setAi1EditableText] = useState("");
+  const [ai1ConstraintJSON, setAi1ConstraintJSON] = useState("");
+  const [ai1ConstraintError, setAi1ConstraintError] = useState<string | null>(null);
+  const [ai1ConstraintSuccess, setAi1ConstraintSuccess] = useState<string | null>(null);
 
   const dirtyKeys = (() => {
     if (!baseForm) return [] as Array<keyof VideoQualitySetting>;
@@ -738,6 +780,64 @@ export default function Page() {
     }
   };
 
+  const resetAI1ConstraintJSONFromForm = () => {
+    setAi1ConstraintJSON(formatAI1ConstraintVariableJSON(form));
+    setAi1ConstraintError(null);
+    setAi1ConstraintSuccess("已按当前参数重建 JSON。");
+  };
+
+  const applyAI1ConstraintJSONToForm = () => {
+    setAi1ConstraintError(null);
+    setAi1ConstraintSuccess(null);
+    try {
+      const parsed = JSON.parse(ai1ConstraintJSON || "{}") as Record<string, unknown>;
+      const nextPatch: Partial<VideoQualitySetting> = {};
+      if ("ai_director_constraint_override_enabled" in parsed) {
+        nextPatch.ai_director_constraint_override_enabled = Boolean(parsed.ai_director_constraint_override_enabled);
+      }
+      if ("ai_director_count_expand_ratio" in parsed) {
+        const value = Number(parsed.ai_director_count_expand_ratio);
+        if (!Number.isFinite(value)) throw new Error("ai_director_count_expand_ratio 不是合法数字");
+        if (value < 0 || value > 3) throw new Error("ai_director_count_expand_ratio 超出范围（0~3）");
+        nextPatch.ai_director_count_expand_ratio = value;
+      }
+      if ("ai_director_duration_expand_ratio" in parsed) {
+        const value = Number(parsed.ai_director_duration_expand_ratio);
+        if (!Number.isFinite(value)) throw new Error("ai_director_duration_expand_ratio 不是合法数字");
+        if (value < 0 || value > 3) throw new Error("ai_director_duration_expand_ratio 超出范围（0~3）");
+        nextPatch.ai_director_duration_expand_ratio = value;
+      }
+      if ("ai_director_count_absolute_cap" in parsed) {
+        const value = Number(parsed.ai_director_count_absolute_cap);
+        if (!Number.isFinite(value)) throw new Error("ai_director_count_absolute_cap 不是合法数字");
+        if (value < 1 || value > 20) throw new Error("ai_director_count_absolute_cap 超出范围（1~20）");
+        nextPatch.ai_director_count_absolute_cap = value;
+      }
+      if ("ai_director_duration_absolute_cap_sec" in parsed) {
+        const value = Number(parsed.ai_director_duration_absolute_cap_sec);
+        if (!Number.isFinite(value)) throw new Error("ai_director_duration_absolute_cap_sec 不是合法数字");
+        if (value < 2 || value > 12) throw new Error("ai_director_duration_absolute_cap_sec 超出范围（2~12）");
+        nextPatch.ai_director_duration_absolute_cap_sec = value;
+      }
+
+      if (
+        typeof nextPatch.ai_director_count_absolute_cap === "number" &&
+        nextPatch.ai_director_count_absolute_cap < form.gif_candidate_max_outputs
+      ) {
+        throw new Error("ai_director_count_absolute_cap 不能小于 gif_candidate_max_outputs");
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        ...nextPatch,
+      }));
+      setAi1ConstraintSuccess("已应用 JSON 变量到当前配置（需点顶部“保存配置”才会落库）。");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "JSON 解析失败";
+      setAi1ConstraintError(message);
+    }
+  };
+
   const fetchRolloutEffects = async (limit = 6): Promise<{ items: VideoQualityRolloutEffectCard[]; fallbackUsed: boolean }> => {
     const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings/rollout-effects?limit=${limit}`);
     if (res.ok) {
@@ -799,6 +899,9 @@ export default function Page() {
         const merged = { ...DEFAULT_FORM, ...data };
         setForm(merged);
         setBaseForm(merged);
+        setAi1ConstraintJSON(formatAI1ConstraintVariableJSON(merged));
+        setAi1ConstraintError(null);
+        setAi1ConstraintSuccess(null);
         setUpdatedAt(data.updated_at || "");
         setRolloutEffects(effectsResult.items);
         setRolloutEffectsFallbackUsed(effectsResult.fallbackUsed);
@@ -808,6 +911,9 @@ export default function Page() {
         setError(message);
         setRolloutEffectsFallbackUsed(false);
         setBaseForm(null);
+        setAi1ConstraintJSON(formatAI1ConstraintVariableJSON(DEFAULT_FORM));
+        setAi1ConstraintError(null);
+        setAi1ConstraintSuccess(null);
       } finally {
         setLoading(false);
         setRolloutEffectsLoading(false);
@@ -863,6 +969,9 @@ export default function Page() {
       const merged = { ...DEFAULT_FORM, ...data };
       setForm(merged);
       setBaseForm(merged);
+      setAi1ConstraintJSON(formatAI1ConstraintVariableJSON(merged));
+      setAi1ConstraintError(null);
+      setAi1ConstraintSuccess(null);
       setUpdatedAt(data.updated_at || "");
       setSuccess(`已保存视频转图质量配置（${dirtyCount} 项变更）。`);
     } catch (err: unknown) {
@@ -1026,6 +1135,63 @@ export default function Page() {
 
         {!templateLoading && templateTab === "ai1" ? (
           <div className="space-y-4 rounded-2xl border border-indigo-200 bg-white p-4">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-700">
+              <div className="font-semibold">AI1 JSON 变量配置（硬约束放权）</div>
+              <div className="mt-1 text-[11px] text-indigo-700/80">
+                用于控制“系统基线约束 + AI 可扩张范围”。修改后请点顶部“保存配置”才会落库生效。
+              </div>
+              <textarea
+                value={ai1ConstraintJSON}
+                onChange={(e) => setAi1ConstraintJSON(e.target.value)}
+                rows={9}
+                className="mt-2 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 font-mono text-[11px] leading-5 text-slate-700 outline-none focus:border-indigo-500"
+                placeholder='{\n  "ai_director_constraint_override_enabled": true,\n  "ai_director_count_expand_ratio": 1,\n  "ai_director_duration_expand_ratio": 0.5,\n  "ai_director_count_absolute_cap": 10,\n  "ai_director_duration_absolute_cap_sec": 6\n}'
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={applyAI1ConstraintJSONToForm}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-500"
+                >
+                  应用 JSON 到当前配置
+                </button>
+                <button
+                  type="button"
+                  onClick={resetAI1ConstraintJSONFromForm}
+                  className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50"
+                >
+                  按当前配置重建 JSON
+                </button>
+              </div>
+              {ai1ConstraintError ? (
+                <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+                  {ai1ConstraintError}
+                </div>
+              ) : null}
+              {ai1ConstraintSuccess ? (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">
+                  {ai1ConstraintSuccess}
+                </div>
+              ) : null}
+              <ul className="mt-2 space-y-1 text-[11px] leading-5 text-indigo-700/90">
+                <li>
+                  <span className="font-semibold">ai_director_constraint_override_enabled</span>：是否启用 AI1 扩张策略
+                </li>
+                <li>
+                  <span className="font-semibold">ai_director_count_expand_ratio</span>：数量扩张比例（1=+100%）
+                </li>
+                <li>
+                  <span className="font-semibold">ai_director_duration_expand_ratio</span>：时长扩张比例（1=+100%）
+                </li>
+                <li>
+                  <span className="font-semibold">ai_director_count_absolute_cap</span>：候选数量绝对上限（防失控）
+                </li>
+                <li>
+                  <span className="font-semibold">ai_director_duration_absolute_cap_sec</span>：单窗口时长绝对上限（秒）
+                </li>
+              </ul>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-3">
               <label className="space-y-1 text-xs text-indigo-700">
                 <span>可编辑层开关</span>
@@ -2223,11 +2389,11 @@ export default function Page() {
               启用 GIF 循环闭合窗口调优（自动优化首尾衔接）
             </label>
             <label className="space-y-1 text-xs text-slate-500">
-              <span>GIF 最大产出数</span>
+              <span>GIF 最大产出数（1~20）</span>
               <input
                 type="number"
                 min={1}
-                max={6}
+                max={20}
                 value={form.gif_candidate_max_outputs}
                 onChange={(e) =>
                   setForm((prev) => ({
@@ -2239,11 +2405,11 @@ export default function Page() {
               />
             </label>
             <label className="space-y-1 text-xs text-slate-500">
-              <span>长视频最大产出数（≥60s）</span>
+              <span>长视频最大产出数（≥60s，1~20）</span>
               <input
                 type="number"
                 min={1}
-                max={6}
+                max={20}
                 value={form.gif_candidate_long_video_max_outputs}
                 onChange={(e) =>
                   setForm((prev) => ({
@@ -2258,11 +2424,11 @@ export default function Page() {
               />
             </label>
             <label className="space-y-1 text-xs text-slate-500">
-              <span>超长视频最大产出数（≥150s）</span>
+              <span>超长视频最大产出数（≥150s，1~20）</span>
               <input
                 type="number"
                 min={1}
-                max={6}
+                max={20}
                 value={form.gif_candidate_ultra_video_max_outputs}
                 onChange={(e) =>
                   setForm((prev) => ({

@@ -15,6 +15,20 @@ type AdminVideoJobCost = {
   estimated_cost?: number;
   currency?: string;
   output_count?: number;
+  ai_cost_usd?: number;
+  ai_cost_cny?: number;
+  ai_calls?: number;
+  ai_duration_ms?: number;
+};
+
+type AdminVideoJobAudit = {
+  proposal_count?: number;
+  deliver_count?: number;
+  feedback_count?: number;
+  rerender_count?: number;
+  keep_internal_count?: number;
+  reject_count?: number;
+  need_manual_review_count?: number;
 };
 
 type AdminVideoJobItem = {
@@ -31,6 +45,7 @@ type AdminVideoJobItem = {
   created_at?: string;
   user: AdminVideoJobUser;
   cost?: AdminVideoJobCost;
+  audit?: AdminVideoJobAudit;
 };
 
 type AdminVideoJobListResponse = {
@@ -66,6 +81,7 @@ const SOURCE_READ_QUICK_OPTIONS = [
   "source_video_network_unstable",
   "source_video_storage_5xx",
 ] as const;
+const AUDIT_SIGNAL_OPTIONS = ["all", "proposal", "deliver", "feedback", "rerender"] as const;
 
 const SOURCE_READ_REASON_LABELS: Record<string, string> = {
   source_video_not_found: "源视频不存在(404)",
@@ -170,6 +186,82 @@ function sourceReadReasonLabel(reason?: string) {
   return SOURCE_READ_REASON_LABELS[key] || key;
 }
 
+function auditSignalLabel(value?: string) {
+  switch ((value || "").trim().toLowerCase()) {
+    case "proposal":
+      return "有 Proposal";
+    case "deliver":
+      return "有 Deliver";
+    case "feedback":
+      return "有反馈";
+    case "rerender":
+      return "有重渲染";
+    default:
+      return "全部信号";
+  }
+}
+
+type JobAnomalySignal = {
+  key: string;
+  label: string;
+  className: string;
+  title?: string;
+};
+
+function buildJobAnomalySignals(job: AdminVideoJobItem, aiCostHighThresholdCNY: number): JobAnomalySignal[] {
+  const status = String(job.status || "").trim().toLowerCase();
+  const proposalCount = Number(job.audit?.proposal_count || 0);
+  const deliverCount = Number(job.audit?.deliver_count || 0);
+  const feedbackCount = Number(job.audit?.feedback_count || 0);
+  const rerenderCount = Number(job.audit?.rerender_count || 0);
+  const outputCount = Number(job.cost?.output_count || 0);
+  const aiCostCNY = Number(job.cost?.ai_cost_cny || 0);
+  const out: JobAnomalySignal[] = [];
+
+  if (status === "done" && proposalCount <= 0) {
+    out.push({
+      key: "proposal_missing",
+      label: "无Proposal",
+      className: "border-rose-200 bg-rose-50 text-rose-700",
+      title: "任务已完成，但没有 AI2 proposal。",
+    });
+  }
+  if (status === "done" && outputCount > 0 && deliverCount <= 0) {
+    out.push({
+      key: "deliver_missing",
+      label: "有产物无Deliver",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+      title: "已有输出产物，但没有 deliver 结果。",
+    });
+  }
+  if (outputCount > 0 && feedbackCount <= 0) {
+    out.push({
+      key: "feedback_missing",
+      label: "有产物无反馈",
+      className: "border-sky-200 bg-sky-50 text-sky-700",
+      title: "已有输出产物，但暂无用户反馈。",
+    });
+  }
+  if (rerenderCount > 0) {
+    out.push({
+      key: "rerender_hit",
+      label: "发生重渲染",
+      className: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+      title: "该任务存在人工/运维触发的重渲染记录。",
+    });
+  }
+  if (aiCostHighThresholdCNY > 0 && aiCostCNY >= aiCostHighThresholdCNY) {
+    out.push({
+      key: "ai_cost_high",
+      label: "AI成本偏高",
+      className: "border-violet-200 bg-violet-50 text-violet-700",
+      title: `AI 成本达到当前页高位阈值（≥ ${formatCurrency(aiCostHighThresholdCNY, "CNY")}）。`,
+    });
+  }
+
+  return out;
+}
+
 async function parseApiError(response: Response, fallback: string) {
   try {
     const payload = (await response.clone().json()) as ApiErrorPayload;
@@ -192,12 +284,14 @@ export default function AdminHighlightJobsPage() {
   const [draftStatus, setDraftStatus] = useState("all");
   const [draftFormat, setDraftFormat] = useState("all");
   const [draftSourceReadReason, setDraftSourceReadReason] = useState("all");
+  const [draftAuditSignal, setDraftAuditSignal] = useState("all");
   const [draftQuery, setDraftQuery] = useState("");
 
   const [userID, setUserID] = useState("");
   const [status, setStatus] = useState("all");
   const [format, setFormat] = useState("all");
   const [sourceReadReason, setSourceReadReason] = useState("all");
+  const [auditSignal, setAuditSignal] = useState("all");
   const [query, setQuery] = useState("");
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
@@ -214,6 +308,7 @@ export default function AdminHighlightJobsPage() {
       if (status !== "all") params.set("status", status);
       if (format !== "all") params.set("format", format);
       if (sourceReadReason !== "all") params.set("source_read_reason", sourceReadReason);
+      if (auditSignal !== "all") params.set("audit_signal", auditSignal);
       if (query.trim()) params.set("q", query.trim());
       const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs?${params.toString()}`);
       if (!res.ok) throw new Error(await parseApiError(res, "加载任务列表失败"));
@@ -225,7 +320,7 @@ export default function AdminHighlightJobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [format, page, query, sourceReadReason, status, userID]);
+  }, [auditSignal, format, page, query, sourceReadReason, status, userID]);
 
   useEffect(() => {
     void loadList();
@@ -236,21 +331,34 @@ export default function AdminHighlightJobsPage() {
     setStatus(draftStatus);
     setFormat(draftFormat);
     setSourceReadReason(draftSourceReadReason);
+    setAuditSignal(draftAuditSignal);
     setQuery(draftQuery.trim());
     setPage(1);
-  }, [draftFormat, draftQuery, draftSourceReadReason, draftStatus, draftUserID]);
+  }, [draftAuditSignal, draftFormat, draftQuery, draftSourceReadReason, draftStatus, draftUserID]);
 
   const stats = useMemo(() => {
     let running = 0;
     let done = 0;
     let failed = 0;
+    let proposalCount = 0;
+    let deliverCount = 0;
+    let feedbackCount = 0;
+    let rerenderCount = 0;
+    let aiCostCNY = 0;
+    let aiCostUSD = 0;
     for (const item of items) {
       const s = (item.status || "").toLowerCase();
       if (s === "running" || s === "queued") running += 1;
       if (s === "done") done += 1;
       if (s === "failed") failed += 1;
+      proposalCount += Number(item.audit?.proposal_count || 0);
+      deliverCount += Number(item.audit?.deliver_count || 0);
+      feedbackCount += Number(item.audit?.feedback_count || 0);
+      rerenderCount += Number(item.audit?.rerender_count || 0);
+      aiCostCNY += Number(item.cost?.ai_cost_cny || 0);
+      aiCostUSD += Number(item.cost?.ai_cost_usd || 0);
     }
-    return { running, done, failed };
+    return { running, done, failed, proposalCount, deliverCount, feedbackCount, rerenderCount, aiCostCNY, aiCostUSD };
   }, [items]);
 
   const sourceReadStats = useMemo(() => {
@@ -268,6 +376,23 @@ export default function AdminHighlightJobsPage() {
       .map(([reason, count]) => ({ reason, count }));
     return { abnormal, top };
   }, [items]);
+
+  const aiCostHighThresholdCNY = useMemo(() => {
+    const values = items
+      .map((item) => Number(item.cost?.ai_cost_cny || 0))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .sort((a, b) => a - b);
+    if (!values.length) return 0;
+    const mid = Math.floor(values.length / 2);
+    const median =
+      values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
+    return Math.max(median * 2, 1);
+  }, [items]);
+
+  const pageAnomalyCount = useMemo(
+    () => items.filter((item) => buildJobAnomalySignals(item, aiCostHighThresholdCNY).length > 0).length,
+    [aiCostHighThresholdCNY, items]
+  );
 
   const applySourceReadQuickFilter = useCallback((reason: string) => {
     setDraftSourceReadReason(reason);
@@ -292,7 +417,7 @@ export default function AdminHighlightJobsPage() {
       />
 
       <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-7">
+        <div className="grid gap-3 md:grid-cols-8">
           <input
             value={draftUserID}
             onChange={(e) => setDraftUserID(e.target.value)}
@@ -333,6 +458,17 @@ export default function AdminHighlightJobsPage() {
               </option>
             ))}
           </select>
+          <select
+            value={draftAuditSignal}
+            onChange={(e) => setDraftAuditSignal(e.target.value)}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+          >
+            {AUDIT_SIGNAL_OPTIONS.map((item) => (
+              <option key={item} value={item}>
+                审计信号：{auditSignalLabel(item)}
+              </option>
+            ))}
+          </select>
           <input
             value={draftQuery}
             onChange={(e) => setDraftQuery(e.target.value)}
@@ -345,7 +481,7 @@ export default function AdminHighlightJobsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-6">
+      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-10">
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <div className="text-xs font-semibold text-slate-500">任务总数（当前筛选）</div>
           <div className="mt-1 text-2xl font-black text-slate-900">{total}</div>
@@ -373,6 +509,33 @@ export default function AdminHighlightJobsPage() {
               ? sourceReadStats.top.map((item) => `${sourceReadReasonLabel(item.reason)}(${item.count})`).join(" / ")
               : "-"}
           </div>
+        </div>
+        <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-violet-700">Proposal（当前页）</div>
+          <div className="mt-1 text-2xl font-black text-violet-700">{stats.proposalCount}</div>
+        </div>
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-indigo-700">Deliver（当前页）</div>
+          <div className="mt-1 text-2xl font-black text-indigo-700">{stats.deliverCount}</div>
+        </div>
+        <div className="rounded-2xl border border-fuchsia-100 bg-fuchsia-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-fuchsia-700">反馈（当前页）</div>
+          <div className="mt-1 text-2xl font-black text-fuchsia-700">{stats.feedbackCount}</div>
+        </div>
+        <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-orange-700">Rerender（当前页）</div>
+          <div className="mt-1 text-2xl font-black text-orange-700">{stats.rerenderCount}</div>
+        </div>
+        <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-rose-700">异常任务（当前页）</div>
+          <div className="mt-1 text-2xl font-black text-rose-700">{pageAnomalyCount}</div>
+        </div>
+        <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-sky-700">AI成本（当前页）</div>
+          <div className="mt-1 text-sm font-black text-sky-700">
+            {formatCurrency(stats.aiCostCNY, "CNY")}
+          </div>
+          <div className="mt-1 text-[11px] text-sky-700">{formatCurrency(stats.aiCostUSD, "USD")}</div>
         </div>
       </div>
 
@@ -416,19 +579,24 @@ export default function AdminHighlightJobsPage() {
 
       <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-sm">
+          <table className="w-full min-w-[1660px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-4 py-3">任务</th>
                 <th className="px-4 py-3">用户</th>
                 <th className="px-4 py-3">格式</th>
                 <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">审计摘要</th>
+                <th className="px-4 py-3">异常信号</th>
+                <th className="px-4 py-3">AI成本</th>
                 <th className="px-4 py-3">创建时间</th>
                 <th className="px-4 py-3">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {items.map((item) => (
+              {items.map((item) => {
+                const anomalySignals = buildJobAnomalySignals(item, aiCostHighThresholdCNY);
+                return (
                 <tr key={item.id}>
                   <td className="px-4 py-3 align-top">
                     <div className="font-semibold text-slate-900">#{item.id} {item.title || "未命名任务"}</div>
@@ -454,6 +622,39 @@ export default function AdminHighlightJobsPage() {
                       成本：{formatCurrency(item.cost?.estimated_cost, item.cost?.currency || "CNY")}
                     </div>
                   </td>
+                  <td className="px-4 py-3 align-top text-xs text-slate-600">
+                    <div className="grid gap-1">
+                      <div>proposal：{Number(item.audit?.proposal_count || 0)}</div>
+                      <div>deliver：{Number(item.audit?.deliver_count || 0)}</div>
+                      <div>feedback：{Number(item.audit?.feedback_count || 0)}</div>
+                      <div>rerender：{Number(item.audit?.rerender_count || 0)}</div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top text-xs text-slate-600">
+                    <div className="flex max-w-[240px] flex-wrap gap-1.5">
+                      {anomalySignals.length ? anomalySignals.map((signal) => (
+                        <span
+                          key={`${item.id}-${signal.key}`}
+                          title={signal.title || signal.label}
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${signal.className}`}
+                        >
+                          {signal.label}
+                        </span>
+                      )) : (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                          暂无异常
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top text-xs text-slate-600">
+                    <div>AI CNY：{formatCurrency(item.cost?.ai_cost_cny, "CNY")}</div>
+                    <div className="mt-1">AI USD：{formatCurrency(item.cost?.ai_cost_usd, "USD")}</div>
+                    <div className="mt-1 text-slate-500">calls：{Number(item.cost?.ai_calls || 0)}</div>
+                    <div className="mt-1 text-slate-500">
+                      duration：{typeof item.cost?.ai_duration_ms === "number" && item.cost.ai_duration_ms > 0 ? `${(item.cost.ai_duration_ms / 1000).toFixed(1)}s` : "-"}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 align-top text-xs text-slate-500">{formatTime(item.created_at)}</td>
                   <td className="px-4 py-3 align-top">
                     <Link
@@ -464,10 +665,10 @@ export default function AdminHighlightJobsPage() {
                     </Link>
                   </td>
                 </tr>
-              ))}
+              )})}
               {!items.length ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-400" colSpan={6}>
+                  <td className="px-4 py-8 text-center text-slate-400" colSpan={9}>
                     暂无数据
                   </td>
                 </tr>

@@ -15,6 +15,7 @@ type IPItem = {
   description?: string;
   sort?: number;
   status?: string;
+  collection_count?: number;
   created_at?: string;
   updated_at?: string;
 };
@@ -118,6 +119,7 @@ export default function Page() {
     if (lower.includes("name required")) return "请输入IP名称";
     if (lower.includes("slug required")) return "Slug 不能为空";
     if (lower.includes("unique") || lower.includes("duplicate")) return "IP 已存在";
+    if (lower.includes("collection not found")) return "绑定的合集ID不存在，请检查后重试";
     if (lower.includes("ip in use")) return "该IP已关联合集，无法删除";
     return text;
   };
@@ -499,7 +501,7 @@ export default function Page() {
     <div className="space-y-6">
       <SectionHeader
         title="IP 管理"
-        description="维护IP形象与关联分类信息。"
+        description="维护表情包 IP 基础信息。合集与 IP 的绑定请在【合集管理】里设置 ip_id。"
         actions={
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -549,6 +551,7 @@ export default function Page() {
                 <tr>
                   <th className="px-3 py-3">IP</th>
                   <th className="px-3 py-3">分类</th>
+                  <th className="px-3 py-3">合集数</th>
                   <th className="px-3 py-3">状态</th>
                   <th className="px-3 py-3">排序</th>
                   <th className="px-3 py-3">操作</th>
@@ -577,6 +580,7 @@ export default function Page() {
                     <td className="px-3 py-4 text-xs text-slate-500">
                       {item.category_id ? categoryMap.get(item.category_id) || "-" : "-"}
                     </td>
+                    <td className="px-3 py-4 text-xs text-slate-500">{item.collection_count ?? 0}</td>
                     <td className="px-3 py-4 text-xs">
                       <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
                         item.status === "inactive" ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-600"
@@ -607,7 +611,7 @@ export default function Page() {
                 ))}
                 {!ips.length && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-10 text-center text-sm text-slate-400">
+                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-400">
                       暂无IP
                     </td>
                   </tr>

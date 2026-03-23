@@ -98,6 +98,35 @@ type TagSection = {
   tags: Tag[];
 };
 
+type CollectionIPStatItem = {
+  ip_id?: number | null;
+  ip_name: string;
+  count: number;
+};
+
+type CollectionIPStatsResponse = {
+  total: number;
+  items: CollectionIPStatItem[];
+};
+
+type CollectionIPAuditLogItem = {
+  id: number;
+  admin_id: number;
+  admin_name?: string;
+  collection_id: number;
+  collection_title?: string;
+  old_ip_id?: number | null;
+  old_ip_name?: string;
+  new_ip_id?: number | null;
+  new_ip_name?: string;
+  created_at: string;
+};
+
+type CollectionIPAuditLogsResponse = {
+  total: number;
+  items: CollectionIPAuditLogItem[];
+};
+
 export default function Page() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -111,9 +140,14 @@ export default function Page() {
   const [pageSize, setPageSize] = useState(20);
   const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured">("all");
   const [sampleFilter, setSampleFilter] = useState<"all" | "sample">("all");
+  const [selectedIPFilter, setSelectedIPFilter] = useState<number>(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingIPStats, setLoadingIPStats] = useState(false);
+  const [loadingIPAuditLogs, setLoadingIPAuditLogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ipStats, setIPStats] = useState<CollectionIPStatItem[]>([]);
+  const [ipAuditLogs, setIPAuditLogs] = useState<CollectionIPAuditLogItem[]>([]);
 
   const [collectionEditOpen, setCollectionEditOpen] = useState(false);
   const [collectionEditing, setCollectionEditing] = useState<Collection | null>(null);
@@ -135,6 +169,8 @@ export default function Page() {
   const [deletingCollectionId, setDeletingCollectionId] = useState<number | null>(null);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<number[]>([]);
   const [batchSampleSaving, setBatchSampleSaving] = useState(false);
+  const [batchIPSaving, setBatchIPSaving] = useState(false);
+  const [batchTargetIPId, setBatchTargetIPId] = useState<number>(0);
   const [exportingSamples, setExportingSamples] = useState(false);
 
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
@@ -344,7 +380,8 @@ export default function Page() {
     topValue = selectedTopId,
     childValue = selectedChildId,
     featuredValue = featuredFilter,
-    sampleValue = sampleFilter
+    sampleValue = sampleFilter,
+    ipFilterValue = selectedIPFilter
   ) => {
     setLoading(true);
     setError(null);
@@ -371,6 +408,11 @@ export default function Page() {
       if (sampleValue === "sample") {
         query.set("is_sample", "1");
       }
+      if (ipFilterValue === -1) {
+        query.set("ip_id", "0");
+      } else if (ipFilterValue > 0) {
+        query.set("ip_id", String(ipFilterValue));
+      }
       const res = await fetchWithAuth(`${API_BASE}/api/collections?${query.toString()}`);
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as CollectionListResponse;
@@ -382,6 +424,63 @@ export default function Page() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCollectionIPStats = async (
+    topValue = selectedTopId,
+    childValue = selectedChildId,
+    featuredValue = featuredFilter,
+    sampleValue = sampleFilter
+  ) => {
+    setLoadingIPStats(true);
+    try {
+      const query = new URLSearchParams();
+      if (childValue) {
+        query.set("category_id", String(childValue));
+      } else if (topValue) {
+        const children = childCategoryMap.get(topValue) || [];
+        if (children.length) {
+          query.set(
+            "category_ids",
+            children.map((item) => item.id).join(",")
+          );
+        } else {
+          query.set("category_id", String(topValue));
+        }
+      }
+      if (featuredValue === "featured") {
+        query.set("is_featured", "1");
+      }
+      if (sampleValue === "sample") {
+        query.set("is_sample", "1");
+      }
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/ip-stats?${query.toString()}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as CollectionIPStatsResponse;
+      setIPStats(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setIPStats([]);
+    } finally {
+      setLoadingIPStats(false);
+    }
+  };
+
+  const loadCollectionIPAuditLogs = async (limit = 20) => {
+    setLoadingIPAuditLogs(true);
+    try {
+      const query = new URLSearchParams();
+      query.set("limit", String(limit));
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/admin/collections/ip-audit-logs?${query.toString()}`
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as CollectionIPAuditLogsResponse;
+      setIPAuditLogs(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setIPAuditLogs([]);
+    } finally {
+      setLoadingIPAuditLogs(false);
     }
   };
 
@@ -431,14 +530,20 @@ export default function Page() {
     loadIps();
     loadTags();
     loadTagGroups();
+    loadCollectionIPAuditLogs(20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 仅根据筛选条件和分页变化拉取列表
   useEffect(() => {
-    loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+    loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter, selectedIPFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter, childCategoryMap]);
+  }, [page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter, selectedIPFilter, childCategoryMap]);
+
+  useEffect(() => {
+    loadCollectionIPStats(selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTopId, selectedChildId, featuredFilter, sampleFilter, childCategoryMap]);
 
   useEffect(() => {
     setSelectedCollectionIds((prev) =>
@@ -567,6 +672,40 @@ export default function Page() {
       setError(message);
     } finally {
       setBatchSampleSaving(false);
+    }
+  };
+
+  const batchAssignIP = async (ipId: number) => {
+    if (!selectedCollectionIds.length || batchIPSaving) return;
+    const targetName =
+      ipId > 0 ? ips.find((item) => item.id === ipId)?.name || `IP#${ipId}` : "清空IP";
+    const actionLabel = ipId > 0 ? "设置IP" : "清空IP";
+    const confirmed = window.confirm(
+      `确认${actionLabel}？\n已选合集：${selectedCollectionIds.length} 条\n目标：${targetName}`
+    );
+    if (!confirmed) return;
+
+    setBatchIPSaving(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/batch-assign-ip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection_ids: selectedCollectionIds,
+          ip_id: ipId > 0 ? ipId : null,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+      await loadCollectionIPStats(selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+      await loadCollectionIPAuditLogs(20);
+      setSelectedCollectionIds([]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "批量设置IP失败";
+      setError(message);
+    } finally {
+      setBatchIPSaving(false);
     }
   };
 
@@ -866,6 +1005,28 @@ export default function Page() {
 
             <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <User size={14} /> IP筛选
+              </div>
+              <select
+                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                value={selectedIPFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setSelectedIPFilter(Number(e.target.value));
+                }}
+              >
+                <option value={0}>全部IP</option>
+                <option value={-1}>未绑定IP</option>
+                {ips.map((ip) => (
+                  <option key={ip.id} value={ip.id}>
+                    {ip.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
                 <List size={14} /> 每页
               </div>
               <select
@@ -894,10 +1055,92 @@ export default function Page() {
           </div>
         </div>
 
+        <div className="mb-4 px-2">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-400">
+            <User size={14} /> 按IP统计（当前筛选口径）
+          </div>
+          {loadingIPStats ? (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">统计加载中...</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setPage(1);
+                  setSelectedIPFilter(0);
+                }}
+                className={`rounded-xl border px-3 py-2 text-left transition ${
+                  selectedIPFilter === 0
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <div className="text-[11px] font-black text-slate-500">全部IP</div>
+                <div className="mt-1 text-base font-black text-slate-900">{total}</div>
+              </button>
+              {ipStats.map((item, idx) => {
+                const statIPID = typeof item.ip_id === "number" ? item.ip_id : null;
+                const isUnbound = statIPID === null || statIPID === 0;
+                const active =
+                  (isUnbound && selectedIPFilter === -1) ||
+                  (!isUnbound && selectedIPFilter === statIPID);
+                if (idx >= 11) return null;
+                return (
+                  <button
+                    key={`${statIPID ?? "none"}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      setPage(1);
+                      setSelectedIPFilter(isUnbound ? -1 : (statIPID || 0));
+                    }}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${
+                      active
+                        ? "border-emerald-300 bg-emerald-50"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="truncate text-[11px] font-black text-slate-500">{item.ip_name}</div>
+                    <div className="mt-1 text-base font-black text-slate-900">{item.count}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="mb-4 flex flex-wrap items-center gap-2 px-2">
           <div className="rounded-xl bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-600">
             已选 {selectedCollectionIds.length} 条
           </div>
+          <select
+            className="h-8 min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
+            value={batchTargetIPId}
+            onChange={(e) => setBatchTargetIPId(Number(e.target.value))}
+            disabled={!selectedCollectionIds.length || batchIPSaving}
+          >
+            <option value={0}>选择目标IP</option>
+            {ips.map((ip) => (
+              <option key={ip.id} value={ip.id}>
+                {ip.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchIPSaving || batchTargetIPId <= 0}
+            onClick={() => batchAssignIP(batchTargetIPId)}
+          >
+            {batchIPSaving ? "处理中..." : "批量设置IP"}
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchIPSaving}
+            onClick={() => batchAssignIP(0)}
+          >
+            批量清空IP
+          </button>
           <button
             type="button"
             className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -914,6 +1157,75 @@ export default function Page() {
           >
             批量取消样本
           </button>
+        </div>
+
+        <div className="mb-4 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <div className="flex items-center gap-2 text-xs font-black text-slate-700">
+              <Clock size={14} className="text-slate-400" />
+              IP绑定操作日志（最近20条）
+            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-50"
+              onClick={() => loadCollectionIPAuditLogs(20)}
+              disabled={loadingIPAuditLogs}
+            >
+              <RefreshCw size={12} className={loadingIPAuditLogs ? "animate-spin" : ""} />
+              刷新
+            </button>
+          </div>
+          {loadingIPAuditLogs ? (
+            <div className="px-4 py-4 text-xs text-slate-500">加载中...</div>
+          ) : ipAuditLogs.length === 0 ? (
+            <div className="px-4 py-4 text-xs text-slate-500">暂无日志</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-4 py-2.5">时间</th>
+                    <th className="px-4 py-2.5">操作人</th>
+                    <th className="px-4 py-2.5">合集</th>
+                    <th className="px-4 py-2.5">变更</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {ipAuditLogs.map((item) => {
+                    const oldLabel =
+                      item.old_ip_id && item.old_ip_id > 0
+                        ? `${item.old_ip_name || "未知IP"} (#${item.old_ip_id})`
+                        : "未绑定";
+                    const newLabel =
+                      item.new_ip_id && item.new_ip_id > 0
+                        ? `${item.new_ip_name || "未知IP"} (#${item.new_ip_id})`
+                        : "未绑定";
+                    return (
+                      <tr key={item.id} className="text-slate-700">
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          {item.admin_name || (item.admin_id ? `#${item.admin_id}` : "-")}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="font-bold text-slate-800">#{item.collection_id}</div>
+                          <div className="max-w-[280px] truncate text-[11px] text-slate-500">
+                            {item.collection_title || "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="font-bold text-slate-700">{oldLabel}</span>
+                          <span className="mx-2 text-slate-400">→</span>
+                          <span className="font-bold text-emerald-700">{newLabel}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* 表格区域 */}

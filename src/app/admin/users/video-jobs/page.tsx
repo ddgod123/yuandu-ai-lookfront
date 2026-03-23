@@ -44,6 +44,7 @@ type AdminVideoJobItem = {
   title: string;
   source_video_key: string;
   source_video_url?: string;
+  asset_domain?: string;
   status: string;
   stage: string;
   progress: number;
@@ -953,6 +954,14 @@ const STAGE_LABEL: Record<string, string> = {
 };
 
 const FORMAT_FILTER_OPTIONS = ["all", "gif", "jpg", "png", "webp", "mp4", "live"] as const;
+const ASSET_DOMAIN_FILTER_OPTIONS = ["all", "video", "archive", "admin", "ugc"] as const;
+const ASSET_DOMAIN_LABEL: Record<string, string> = {
+  all: "全部",
+  video: "视频生成域",
+  archive: "档案馆域",
+  admin: "后台运营域",
+  ugc: "用户上传域",
+};
 const REVIEW_STATUS_FILTER_OPTIONS = ["all", "deliver", "keep_internal", "reject", "need_manual_review"] as const;
 const GIF_PIPELINE_STAGE_ORDER = ["briefing", "planning", "scoring", "reviewing"] as const;
 const GIF_PIPELINE_STAGE_LABEL: Record<string, string> = {
@@ -993,6 +1002,13 @@ type AIUsageStageSummary = {
 function normalizeAIStage(value?: string) {
   const stage = (value || "").trim().toLowerCase();
   return stage || "unknown";
+}
+
+function normalizeAssetDomain(value?: string) {
+  const domain = (value || "").trim().toLowerCase();
+  if (!domain) return "video";
+  if (domain === "video" || domain === "archive" || domain === "admin" || domain === "ugc") return domain;
+  return domain;
 }
 
 function summarizeAIUsageByStage(usages?: AdminVideoJobAIUsage[]) {
@@ -1786,6 +1802,7 @@ export default function AdminUserVideoJobsPage() {
   const [userID, setUserID] = useState("");
   const [status, setStatus] = useState("all");
   const [formatFilter, setFormatFilter] = useState("all");
+  const [assetDomainFilter, setAssetDomainFilter] = useState("all");
   const [guardReason, setGuardReason] = useState("");
   const [quick, setQuick] = useState("all");
   const [sampleFilter, setSampleFilter] = useState<"all" | "sample">("all");
@@ -1793,6 +1810,7 @@ export default function AdminUserVideoJobsPage() {
   const [draftUserID, setDraftUserID] = useState("");
   const [draftStatus, setDraftStatus] = useState("all");
   const [draftFormatFilter, setDraftFormatFilter] = useState("all");
+  const [draftAssetDomainFilter, setDraftAssetDomainFilter] = useState("all");
   const [draftGuardReason, setDraftGuardReason] = useState("");
   const [draftQ, setDraftQ] = useState("");
   const [overviewWindow, setOverviewWindow] = useState("24h");
@@ -1956,6 +1974,7 @@ export default function AdminUserVideoJobsPage() {
       if (userID.trim()) params.set("user_id", userID.trim());
       if (status !== "all") params.set("status", status);
       if (formatFilter !== "all") params.set("format", formatFilter);
+      if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       if (quick !== "all") params.set("quick", quick);
       if (sampleFilter === "sample") params.set("is_sample", "1");
@@ -1979,24 +1998,27 @@ export default function AdminUserVideoJobsPage() {
         setLoading(false);
       }
     }
-  }, [formatFilter, guardReason, page, pageSize, q, quick, sampleFilter, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, status, userID]);
+  }, [assetDomainFilter, formatFilter, guardReason, page, pageSize, q, quick, sampleFilter, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, status, userID]);
 
   const applyListFilters = useCallback(() => {
     const nextUserID = draftUserID.trim();
     const nextStatus = draftStatus.trim() || "all";
     const nextFormat = draftFormatFilter.trim() || "all";
+    const nextAssetDomain = draftAssetDomainFilter.trim() || "all";
     const nextGuardReason = draftGuardReason.trim().toLowerCase();
     const nextQ = draftQ.trim();
     const unchanged =
       nextUserID === userID &&
       nextStatus === status &&
       nextFormat === formatFilter &&
+      nextAssetDomain === assetDomainFilter &&
       nextGuardReason === guardReason &&
       nextQ === q;
 
     setUserID(nextUserID);
     setStatus(nextStatus);
     setFormatFilter(nextFormat);
+    setAssetDomainFilter(nextAssetDomain);
     setGuardReason(nextGuardReason);
     setQ(nextQ);
     if (page !== 1) {
@@ -2008,10 +2030,12 @@ export default function AdminUserVideoJobsPage() {
     }
   }, [
     draftFormatFilter,
+    draftAssetDomainFilter,
     draftGuardReason,
     draftQ,
     draftStatus,
     draftUserID,
+    assetDomainFilter,
     formatFilter,
     guardReason,
     load,
@@ -2156,6 +2180,7 @@ export default function AdminUserVideoJobsPage() {
       const params = new URLSearchParams({ window: overviewWindow });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (formatFilter !== "all") params.set("format", formatFilter);
+      if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
         `${API_BASE}/api/admin/video-jobs/feedback-report.csv?${params.toString()}`
@@ -2177,6 +2202,9 @@ export default function AdminUserVideoJobsPage() {
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
       if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (assetDomainFilter !== "all") {
+        filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
+      }
       if (guardReason.trim()) filters.push(`原因:${guardReason.trim()}`);
       const summary = filters.length ? filters.join(" / ") : "全量";
       setExportNoticeLevel("success");
@@ -2190,7 +2218,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       setExportingFeedbackReport(false);
     }
-  }, [formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
+  }, [assetDomainFilter, formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
 
   const exportFeedbackIntegrityReport = useCallback(async () => {
     setExportingFeedbackIntegrityReport(true);
@@ -2199,6 +2227,7 @@ export default function AdminUserVideoJobsPage() {
       const params = new URLSearchParams({ window: overviewWindow });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (formatFilter !== "all") params.set("format", formatFilter);
+      if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
         `${API_BASE}/api/admin/video-jobs/feedback-integrity.csv?${params.toString()}`
@@ -2220,6 +2249,9 @@ export default function AdminUserVideoJobsPage() {
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
       if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (assetDomainFilter !== "all") {
+        filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
+      }
       if (guardReason.trim()) filters.push(`原因:${guardReason.trim()}`);
       const summary = filters.length ? filters.join(" / ") : "全量";
       setExportNoticeLevel("success");
@@ -2233,7 +2265,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       setExportingFeedbackIntegrityReport(false);
     }
-  }, [formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
+  }, [assetDomainFilter, formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
 
   const exportFeedbackIntegrityTrendReport = useCallback(async () => {
     setExportingFeedbackIntegrityTrendReport(true);
@@ -2242,6 +2274,7 @@ export default function AdminUserVideoJobsPage() {
       const params = new URLSearchParams({ window: overviewWindow });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (formatFilter !== "all") params.set("format", formatFilter);
+      if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
         `${API_BASE}/api/admin/video-jobs/feedback-integrity-trend.csv?${params.toString()}`
@@ -2260,8 +2293,16 @@ export default function AdminUserVideoJobsPage() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
+      const filters: string[] = [];
+      if (userID.trim()) filters.push(`用户#${userID.trim()}`);
+      if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (assetDomainFilter !== "all") {
+        filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
+      }
+      if (guardReason.trim()) filters.push(`原因:${guardReason.trim()}`);
+      const summary = filters.length ? filters.join(" / ") : "全量";
       setExportNoticeLevel("success");
-      setExportNotice(`导出成功：${fileName}`);
+      setExportNotice(`导出成功：${fileName}（${summary}）`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "导出反馈完整性趋势失败";
       setExportNoticeLevel("error");
@@ -2272,6 +2313,7 @@ export default function AdminUserVideoJobsPage() {
       setExportingFeedbackIntegrityTrendReport(false);
     }
   }, [
+    assetDomainFilter,
     formatFilter,
     guardReason,
     overviewWindow,
@@ -2289,6 +2331,7 @@ export default function AdminUserVideoJobsPage() {
       const params = new URLSearchParams({ window: overviewWindow, limit: "500" });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (formatFilter !== "all") params.set("format", formatFilter);
+      if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
         `${API_BASE}/api/admin/video-jobs/feedback-integrity-anomalies.csv?${params.toString()}`
@@ -2310,6 +2353,9 @@ export default function AdminUserVideoJobsPage() {
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
       if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (assetDomainFilter !== "all") {
+        filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
+      }
       if (guardReason.trim()) filters.push(`原因:${guardReason.trim()}`);
       const summary = filters.length ? filters.join(" / ") : "全量";
       setExportNoticeLevel("success");
@@ -2324,6 +2370,7 @@ export default function AdminUserVideoJobsPage() {
       setExportingFeedbackIntegrityAnomalyReport(false);
     }
   }, [
+    assetDomainFilter,
     formatFilter,
     guardReason,
     overviewWindow,
@@ -2393,6 +2440,7 @@ export default function AdminUserVideoJobsPage() {
       const params = new URLSearchParams({ window: overviewWindow, blocked_only: "1" });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (formatFilter !== "all") params.set("format", formatFilter);
+      if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
         `${API_BASE}/api/admin/video-jobs/feedback-report.csv?${params.toString()}`
@@ -2414,6 +2462,9 @@ export default function AdminUserVideoJobsPage() {
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
       if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (assetDomainFilter !== "all") {
+        filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
+      }
       if (guardReason.trim()) filters.push(`原因:${guardReason.trim()}`);
       const summary = filters.length ? filters.join(" / ") : "全量";
       setExportNoticeLevel("success");
@@ -2427,7 +2478,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       setExportingBlockedFeedbackReport(false);
     }
-  }, [formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
+  }, [assetDomainFilter, formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
 
   const exportSampleBaselineDiff = useCallback(async () => {
     setExportingSampleBaselineDiff(true);
@@ -3355,10 +3406,13 @@ export default function AdminUserVideoJobsPage() {
     const parts: string[] = [];
     if (userID.trim()) parts.push(`用户#${userID.trim()}`);
     if (formatFilter !== "all") parts.push(`格式:${formatFilter}`);
+    if (assetDomainFilter !== "all") {
+      parts.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
+    }
     if (guardReason.trim()) parts.push(`原因:${guardReason.trim()}`);
     if (!parts.length) return "全量";
     return parts.join(" / ");
-  }, [formatFilter, guardReason, userID]);
+  }, [assetDomainFilter, formatFilter, guardReason, userID]);
   const blockedExportLabel = useMemo(() => {
     const reasonText = guardReason.trim();
     if (reasonText && quick === "guard_blocked") {
@@ -3778,7 +3832,7 @@ export default function AdminUserVideoJobsPage() {
       />
 
       <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-8">
+        <div className="grid gap-3 md:grid-cols-9">
           <input
             value={draftUserID}
             onChange={(e) => setDraftUserID(e.target.value)}
@@ -3805,6 +3859,17 @@ export default function AdminUserVideoJobsPage() {
             {FORMAT_FILTER_OPTIONS.map((item) => (
               <option key={item} value={item}>
                 格式：{item}
+              </option>
+            ))}
+          </select>
+          <select
+            value={draftAssetDomainFilter}
+            onChange={(e) => setDraftAssetDomainFilter(e.target.value)}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+          >
+            {ASSET_DOMAIN_FILTER_OPTIONS.map((item) => (
+              <option key={item} value={item}>
+                资产域：{ASSET_DOMAIN_LABEL[item] || item}
               </option>
             ))}
           </select>
@@ -4852,6 +4917,8 @@ export default function AdminUserVideoJobsPage() {
                 const missingFormats = requestedFormats.filter((format) => !generatedFormats.includes(format));
                 const sourceProbeSummary = formatSourceVideoProbe(resolveSourceVideoProbe(item.options));
                 const rowHighlightFeedback = resolveHighlightFeedbackDrilldown(item.metrics);
+                const itemAssetDomain = normalizeAssetDomain(item.asset_domain);
+                const itemAssetDomainLabel = ASSET_DOMAIN_LABEL[itemAssetDomain] || itemAssetDomain;
                 return (
                 <tr key={item.id}>
                   <td className="px-4 py-3 align-top">
@@ -4859,6 +4926,7 @@ export default function AdminUserVideoJobsPage() {
                     <div className="mt-1 max-w-[340px] truncate text-xs text-slate-400" title={item.source_video_key}>
                       {item.source_video_key}
                     </div>
+                    <div className="mt-1 text-xs text-slate-500">资产域：{itemAssetDomainLabel}</div>
                     <div className="mt-1 text-xs text-slate-500">输入：{sourceProbeSummary}</div>
                     <div className="mt-1 text-xs text-slate-500">请求：{requestedFormats.join(",") || "-"}</div>
                     {item.status === "done" ? (
@@ -4915,17 +4983,22 @@ export default function AdminUserVideoJobsPage() {
                         <div className="mt-1 max-w-[220px] truncate text-xs text-slate-500" title={item.collection?.title}>
                           {item.collection?.title || "-"}
                         </div>
+                        <div className="mt-1 text-[11px] text-slate-400">域：{itemAssetDomainLabel}</div>
                         {item.collection?.is_sample ? (
                           <div className="mt-1 inline-flex rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700">
                             样本
                           </div>
                         ) : null}
-                        <Link
-                          href={`/admin/archive/collections/${item.result_collection_id}/emojis`}
-                          className="mt-1 inline-flex text-xs font-semibold text-emerald-600 hover:text-emerald-700"
-                        >
-                          查看合集
-                        </Link>
+                        {itemAssetDomain === "archive" ? (
+                          <Link
+                            href={`/admin/archive/collections/${item.result_collection_id}/emojis`}
+                            className="mt-1 inline-flex text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                          >
+                            查看合集
+                          </Link>
+                        ) : (
+                          <div className="mt-1 text-xs text-slate-400">非档案馆域，请在任务详情查看产物</div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400">-</span>

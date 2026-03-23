@@ -20,8 +20,8 @@ type LoginResponse = {
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [phone, setPhone] = useState("18800000000");
-  const [code, setCode] = useState("123456");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,14 +33,24 @@ export default function AdminLoginPage() {
   }, [router]);
 
   const submit = async () => {
+    const normalizedPhone = phone.trim();
+    if (!normalizedPhone) {
+      setError("请输入管理员手机号");
+      return;
+    }
+    if (!password.trim()) {
+      setError("请输入登录密码");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/login-phone`, {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ phone: normalizedPhone, password }),
       });
       if (!res.ok) {
         const msg = await res.text();
@@ -97,21 +107,20 @@ export default function AdminLoginPage() {
             </div>
 
             <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">验证码</label>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">登录密码</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </span>
                 <input
+                  type="password"
+                  autoComplete="current-password"
                   className="w-full rounded-2xl border border-slate-100 bg-slate-50 py-3 pl-12 pr-4 text-sm font-medium tracking-[0.5em] outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 placeholder:text-slate-300 placeholder:tracking-normal"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="输入 6 位验证码"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="输入登录密码"
                 />
               </div>
-              <p className="mt-3 text-[11px] font-medium text-slate-400">
-                测试环境验证码：<span className="font-bold text-emerald-500">123456</span>
-              </p>
             </div>
 
             {error && (

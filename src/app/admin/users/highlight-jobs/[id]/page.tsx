@@ -46,6 +46,7 @@ type AdminVideoJobEvent = {
 
 type AdminVideoJobArtifact = {
   id: number;
+  format?: string;
   type?: string;
   qiniu_key?: string;
   url?: string;
@@ -53,6 +54,8 @@ type AdminVideoJobArtifact = {
   size_bytes?: number;
   width?: number;
   height?: number;
+  proposal_id?: number;
+  is_primary?: boolean;
   metadata?: Record<string, unknown>;
   created_at?: string;
 };
@@ -151,6 +154,60 @@ type AdminVideoJobGIFEvaluation = {
   created_at?: string;
 };
 
+type AdminVideoJobGIFFeedback = {
+  id: number;
+  output_id?: number;
+  proposal_id?: number;
+  user_id?: number;
+  action?: string;
+  weight?: number;
+  scene_tag?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+};
+
+type AdminVideoJobGIFRerenderRecord = {
+  review_id: number;
+  output_id?: number;
+  proposal_id?: number;
+  proposal_rank?: number;
+  recommendation?: string;
+  diagnostic?: string;
+  suggested_action?: string;
+  trigger?: string;
+  actor_id?: number;
+  actor_role?: string;
+  output_object_key?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+};
+
+type AdminVideoJobGIFProposalChainSummary = {
+  output_count?: number;
+  evaluation_count?: number;
+  review_count?: number;
+  feedback_count?: number;
+  rerender_count?: number;
+  deliver_count?: number;
+  keep_internal_count?: number;
+  reject_count?: number;
+  need_manual_review_count?: number;
+  latest_recommendation?: string;
+  feedback_action_counts?: Record<string, number>;
+};
+
+type AdminVideoJobGIFProposalChain = {
+  chain_key: string;
+  chain_type?: string;
+  proposal?: AdminVideoJobAIGIFProposal;
+  outputs?: AdminVideoJobArtifact[];
+  evaluations?: AdminVideoJobGIFEvaluation[];
+  reviews?: AdminVideoJobAIGIFReview[];
+  feedbacks?: AdminVideoJobGIFFeedback[];
+  rerenders?: AdminVideoJobGIFRerenderRecord[];
+  summary?: AdminVideoJobGIFProposalChainSummary;
+};
+
 type AdminVideoJobGIFAuditChainSummary = {
   candidate_count?: number;
   proposal_count?: number;
@@ -176,6 +233,7 @@ type AdminVideoJobGIFAuditChainResponse = {
   ai_gif_proposals?: AdminVideoJobAIGIFProposal[];
   ai_gif_reviews?: AdminVideoJobAIGIFReview[];
   gif_evaluations?: AdminVideoJobGIFEvaluation[];
+  proposal_chains?: AdminVideoJobGIFProposalChain[];
 };
 
 type AdminVideoAIPromptTemplateItem = {
@@ -217,7 +275,7 @@ type WorkerOutputRow = {
   evaluation?: AdminVideoJobGIFEvaluation;
 };
 
-type SectionKey = "overview" | "ai1" | "ai2" | "scoring" | "ai3" | "output" | "events";
+type SectionKey = "overview" | "anomalies" | "ai1" | "proposal_chains" | "appendix" | "ai2" | "scoring" | "ai3" | "output" | "events";
 
 type StageComparisonRow = {
   key: "ai1" | "ai2" | "scoring" | "ai3";
@@ -230,6 +288,15 @@ type StageComparisonRow = {
   cost_usd?: number;
   status: string;
   error?: string;
+};
+
+type DetailAnomalyItem = {
+  key: string;
+  label: string;
+  severity: "high" | "medium" | "low";
+  count: number;
+  active: boolean;
+  detail: string;
 };
 
 const REVIEW_STATUS_LABEL: Record<string, string> = {
@@ -246,7 +313,7 @@ const SUB_STAGE_META: Array<{ key: string; label: string }> = [
   { key: "reviewing", label: "AI3 Reviewing" },
 ];
 
-const ALL_SECTION_KEYS: SectionKey[] = ["overview", "ai1", "ai2", "scoring", "ai3", "output", "events"];
+const ALL_SECTION_KEYS: SectionKey[] = ["overview", "anomalies", "ai1", "proposal_chains", "appendix", "ai2", "scoring", "ai3", "output", "events"];
 
 const AI1_OUTPUT_CONTRACT_TEXT = `{
   "directive": {
@@ -276,41 +343,42 @@ const AI1_INPUT_FIELD_SPECS: Array<{
   label: string;
   note: string;
 }> = [
-  { path: "job_id", label: "任务ID", note: "视频任务唯一标识，用于串联AI1/AI2/评分/AI3全链路。" },
-  { path: "title", label: "任务标题", note: "本次任务的业务标题，辅助语义上下文理解。" },
-  { path: "duration_sec", label: "视频时长(秒)", note: "源视频总时长，用于约束候选窗口范围。" },
-  { path: "width", label: "视频宽度", note: "源视频宽度（像素）。" },
-  { path: "height", label: "视频高度", note: "源视频高度（像素）。" },
-  { path: "fps", label: "视频帧率", note: "源视频帧率（fps），影响动作连续性判断。" },
-  { path: "gif_profile", label: "GIF质量档位", note: "GIF质量策略档位（如 clarity / balanced / size）。" },
-  { path: "gif_target_size_kb", label: "GIF目标体积KB", note: "单GIF目标体积预算（KB）。" },
-  {
-    path: "source_input_mode_requested",
-    label: "输入模式(请求)",
-    note: "配置请求模式（frames / full_video / hybrid）。",
-  },
-  {
-    path: "source_input_mode_applied",
-    label: "输入模式(实际)",
-    note: "运行时实际生效模式（可能因URL可用性回退）。",
-  },
-  { path: "source_input_type", label: "输入来源类型", note: "本次输入来源标签（如 full_video_url / frame_manifest）。" },
-  { path: "frame_count", label: "采样帧数量", note: "帧输入模式下传给AI1的采样帧数量。" },
-  {
-    path: "frame_manifest",
-    label: "采样帧清单",
-    note: "采样帧元信息数组；子字段 index(序号) / timestamp_sec(时间点秒) / bytes(帧大小字节)。",
-  },
-  { path: "source_video_url_available", label: "视频URL可用", note: "是否成功生成可被模型读取的源视频URL。" },
-  { path: "source_video_url_error", label: "视频URL错误", note: "当URL不可用时的错误信息；为空表示无错误。" },
-  { path: "source_video_url", label: "源视频URL", note: "传给AI1的整段视频访问URL（页面做脱敏展示）。" },
-  { path: "operator_instruction.enabled", label: "运营指令启用", note: "是否启用AI1可编辑运营指令模板。" },
-  { path: "operator_instruction.version", label: "运营指令版本", note: "当前生效的AI1可编辑运营模板版本号。" },
-  {
-    path: "operator_instruction.text",
-    label: "运营指令正文",
-    note: "运营可编辑指令文本，指导AI1生成directive（目标/约束/输出契约）。",
-  },
+  { path: "schema_version", label: "协议版本", note: "AI1 模型输入 JSON 协议版本，用于灰度和回放。" },
+  { path: "task.asset_goal", label: "任务资产目标", note: "本次任务期望产出的资产目标（如 gif_highlight）。" },
+  { path: "task.business_scene", label: "业务场景", note: "本次任务所属业务场景（如 social_spread）。" },
+  { path: "task.delivery_goal", label: "交付目标", note: "本次产物交付目标（如 standalone_shareable）。" },
+  { path: "task.optimization_target", label: "优化目标", note: "清晰优先/体积优先/平衡策略。" },
+  { path: "task.cost_sensitivity", label: "成本敏感度", note: "模型理解的成本约束等级。" },
+  { path: "task.hard_constraints.target_count_min", label: "候选最少数量", note: "建议 AI2 至少提名的候选窗口数量。" },
+  { path: "task.hard_constraints.target_count_max", label: "候选最多数量", note: "建议 AI2 最多提名的候选窗口数量。" },
+  { path: "task.hard_constraints.duration_sec_min", label: "窗口最短秒数", note: "候选窗口时长下限偏好。" },
+  { path: "task.hard_constraints.duration_sec_max", label: "窗口最长秒数", note: "候选窗口时长上限偏好。" },
+  { path: "source.title", label: "任务标题", note: "源视频任务标题，作为语义上下文。" },
+  { path: "source.duration_sec", label: "视频时长(秒)", note: "源视频总时长（秒）。" },
+  { path: "source.width", label: "视频宽度", note: "源视频宽度（像素）。" },
+  { path: "source.height", label: "视频高度", note: "源视频高度（像素）。" },
+  { path: "source.fps", label: "视频帧率", note: "源视频帧率（fps）。" },
+  { path: "source.aspect_ratio", label: "宽高比", note: "源视频宽高比（如 9:16）。" },
+  { path: "source.orientation", label: "方向", note: "横屏/竖屏/方图。" },
+  { path: "source.input_mode", label: "模型输入模式", note: "AI1 实际输入模式（frames/full_video）。" },
+  { path: "source.frame_refs", label: "关键帧引用", note: "仅模型需要的关键帧索引与时间点（不含字节大小）。" },
+  { path: "risk_hints", label: "风险提示", note: "供 AI1 参考的低成本风险标签。" },
+];
+
+const AI1_DEBUG_FIELD_SPECS: Array<{ path: string; label: string; note: string }> = [
+  { path: "job_id", label: "任务ID", note: "调试主键，用于串联全链路日志。" },
+  { path: "source_input_mode_requested", label: "输入模式(请求)", note: "质量配置请求模式（frames/full_video/hybrid）。" },
+  { path: "source_input_mode_applied", label: "输入模式(实际)", note: "本次调用实际模式。" },
+  { path: "source_input_type", label: "输入来源", note: "本次来源类型（full_video_url / frame_manifest 等）。" },
+  { path: "frame_count", label: "采样帧数量", note: "帧输入模式下抽样帧数量。" },
+  { path: "frame_manifest", label: "采样帧清单", note: "调试清单，含 index/timestamp_sec/bytes。" },
+  { path: "source_video_url_available", label: "视频URL可用", note: "完整视频 URL 是否可用。" },
+  { path: "source_video_url_error", label: "视频URL错误", note: "URL 不可用时的错误信息。" },
+  { path: "source_video_url", label: "源视频URL", note: "传输给模型的完整视频 URL（已脱敏展示）。" },
+  { path: "operator_instruction.enabled", label: "运营指令启用", note: "可编辑模板是否启用。" },
+  { path: "operator_instruction.version", label: "运营指令版本", note: "当前可编辑模板版本。" },
+  { path: "operator_instruction.render_mode", label: "指令渲染模式", note: "text_passthrough / json_schema_rendered。" },
+  { path: "operator_instruction.text", label: "渲染后指令", note: "拼装进 system prompt 的可编辑层文本。" },
 ];
 
 function formatTime(value?: string) {
@@ -352,6 +420,34 @@ function formatCurrency(value?: number, currency = "CNY") {
 function reviewStatusLabel(status?: string) {
   const normalized = (status || "").trim().toLowerCase();
   return REVIEW_STATUS_LABEL[normalized] || status || "-";
+}
+
+function reviewStatusTone(status?: string) {
+  const normalized = (status || "").trim().toLowerCase();
+  switch (normalized) {
+    case "deliver":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "keep_internal":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "reject":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "need_manual_review":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600";
+  }
+}
+
+function anomalyTone(severity: DetailAnomalyItem["severity"], active: boolean) {
+  if (!active) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  switch (severity) {
+    case "high":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "medium":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-sky-200 bg-sky-50 text-sky-700";
+  }
 }
 
 function parseNumberValue(value: unknown): number | undefined {
@@ -441,6 +537,27 @@ function safeJSONStringify(value: unknown) {
   }
 }
 
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  throw new Error("clipboard_unavailable");
+}
+
+function downloadTextFile(filename: string, text: string, mimeType = "application/json;charset=utf-8") {
+  if (typeof window === "undefined") return;
+  const blob = new Blob([text], { type: mimeType });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 function formatJSONPreview(value: unknown, maxChars = 220) {
   const raw = safeJSONStringify(value);
   if (raw.length <= maxChars) return raw;
@@ -483,14 +600,30 @@ function getValueByPath(root: Record<string, unknown>, path: string): unknown {
 
 function extractUsageInputPayload(row: AdminVideoJobAIUsage | undefined, stage: "director" | "planner" | "judge") {
   if (!row?.metadata || typeof row.metadata !== "object") return null;
-  const keyMap: Record<typeof stage, string> = {
-    director: "director_input_payload_v1",
-    planner: "planner_input_payload_v1",
-    judge: "judge_input_payload_v1",
+  const keyMap: Record<typeof stage, string[]> = {
+    director: ["director_model_payload_v2", "director_input_payload_v1"],
+    planner: ["planner_input_payload_v1"],
+    judge: ["judge_input_payload_v1"],
   };
-  const key = keyMap[stage];
-  const payload = (row.metadata as Record<string, unknown>)[key];
-  if (payload && typeof payload === "object") return payload as Record<string, unknown>;
+  const keys = keyMap[stage];
+  for (const key of keys) {
+    const payload = (row.metadata as Record<string, unknown>)[key];
+    if (payload && typeof payload === "object") return payload as Record<string, unknown>;
+  }
+  return null;
+}
+
+function extractUsageDebugPayload(row: AdminVideoJobAIUsage | undefined, stage: "director" | "planner" | "judge") {
+  if (!row?.metadata || typeof row.metadata !== "object") return null;
+  const keyMap: Record<typeof stage, string[]> = {
+    director: ["director_debug_context_v1", "director_input_payload_v1"],
+    planner: ["planner_input_payload_v1"],
+    judge: ["judge_input_payload_v1"],
+  };
+  for (const key of keyMap[stage]) {
+    const payload = (row.metadata as Record<string, unknown>)[key];
+    if (payload && typeof payload === "object") return payload as Record<string, unknown>;
+  }
   return null;
 }
 
@@ -504,8 +637,11 @@ function resolveMainDurationMs(job?: AdminVideoJobItem | null) {
 function buildSectionState(openKeys: SectionKey[]): Record<SectionKey, boolean> {
   const state: Record<SectionKey, boolean> = {
     overview: false,
+    anomalies: false,
     ai1: false,
     ai2: false,
+    proposal_chains: false,
+    appendix: false,
     scoring: false,
     ai3: false,
     output: false,
@@ -521,37 +657,52 @@ function defaultOpenSectionsByStage(stage?: string): Record<SectionKey, boolean>
   switch (normalized) {
     case "briefing":
     case "director":
+      open.add("anomalies");
       open.add("ai1");
       break;
     case "planning":
     case "planner":
+      open.add("anomalies");
       open.add("ai2");
+      open.add("proposal_chains");
       break;
     case "scoring":
+      open.add("anomalies");
+      open.add("proposal_chains");
       open.add("scoring");
       break;
     case "reviewing":
     case "judge":
+      open.add("anomalies");
+      open.add("proposal_chains");
       open.add("ai3");
       break;
     case "analyzing":
+      open.add("anomalies");
       open.add("ai1");
       open.add("ai2");
+      open.add("proposal_chains");
       break;
     case "rendering":
     case "uploading":
     case "persisting":
+      open.add("anomalies");
+      open.add("proposal_chains");
       open.add("output");
       break;
     case "done":
     case "failed":
     case "cancelled":
+      open.add("anomalies");
+      open.add("proposal_chains");
       open.add("ai3");
       open.add("output");
       open.add("events");
       break;
     default:
+      open.add("anomalies");
       open.add("ai1");
+      open.add("proposal_chains");
       open.add("output");
       break;
   }
@@ -574,6 +725,7 @@ export default function AdminHighlightJobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminVideoJobGIFAuditChainResponse | null>(null);
   const [ai1PromptTemplates, setAI1PromptTemplates] = useState<AdminVideoAIPromptTemplateItem[]>([]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(() =>
     defaultOpenSectionsByStage()
   );
@@ -595,6 +747,18 @@ export default function AdminHighlightJobDetailPage() {
 
   const collapseAllSections = useCallback(() => {
     setOpenSections(buildSectionState(["overview"]));
+  }, []);
+
+  const handleCopyJSON = useCallback(async (key: string, value: unknown) => {
+    try {
+      await copyTextToClipboard(typeof value === "string" ? value : safeJSONStringify(value));
+      setCopiedKey(key);
+      window.setTimeout(() => {
+        setCopiedKey((current) => (current === key ? null : current));
+      }, 1600);
+    } catch {
+      setCopiedKey(null);
+    }
   }, []);
 
   const loadDetail = useCallback(async () => {
@@ -667,6 +831,66 @@ export default function AdminHighlightJobDetailPage() {
     return [...source].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
   }, [detail?.gif_evaluations]);
 
+  const detailProposalChains = useMemo(() => {
+    const source = Array.isArray(detail?.proposal_chains) ? detail.proposal_chains : [];
+    return [...source].sort((a, b) => {
+      const ar = Number(a.proposal?.proposal_rank || 0);
+      const br = Number(b.proposal?.proposal_rank || 0);
+      if (ar > 0 && br > 0 && ar !== br) return ar - br;
+      if (ar > 0 && br <= 0) return -1;
+      if (ar <= 0 && br > 0) return 1;
+      const aid = Number(a.proposal?.id || a.outputs?.[0]?.id || 0);
+      const bid = Number(b.proposal?.id || b.outputs?.[0]?.id || 0);
+      return aid - bid;
+    });
+  }, [detail?.proposal_chains]);
+
+  const feedbackByOutputID = useMemo(() => {
+    const out = new Map<number, AdminVideoJobGIFFeedback[]>();
+    for (const chain of detailProposalChains) {
+      const feedbacks = Array.isArray(chain.feedbacks) ? chain.feedbacks : [];
+      for (const item of feedbacks) {
+        const outputID = Number(item.output_id || 0);
+        if (outputID <= 0) continue;
+        const current = out.get(outputID) || [];
+        current.push(item);
+        out.set(outputID, current);
+      }
+    }
+    return out;
+  }, [detailProposalChains]);
+
+  const proposalChainSummary = useMemo(() => {
+    return detailProposalChains.reduce(
+      (acc, item) => {
+        const summary = item.summary || {};
+        acc.outputCount += Number(summary.output_count || 0);
+        acc.evaluationCount += Number(summary.evaluation_count || 0);
+        acc.reviewCount += Number(summary.review_count || 0);
+        acc.feedbackCount += Number(summary.feedback_count || 0);
+        acc.rerenderCount += Number(summary.rerender_count || 0);
+        acc.deliverCount += Number(summary.deliver_count || 0);
+        acc.keepInternalCount += Number(summary.keep_internal_count || 0);
+        acc.rejectCount += Number(summary.reject_count || 0);
+        acc.needManualReviewCount += Number(summary.need_manual_review_count || 0);
+        if (!item.proposal) acc.unlinkedChains += 1;
+        return acc;
+      },
+      {
+        outputCount: 0,
+        evaluationCount: 0,
+        reviewCount: 0,
+        feedbackCount: 0,
+        rerenderCount: 0,
+        deliverCount: 0,
+        keepInternalCount: 0,
+        rejectCount: 0,
+        needManualReviewCount: 0,
+        unlinkedChains: 0,
+      }
+    );
+  }, [detailProposalChains]);
+
   const reviewByOutputID = useMemo(() => {
     const out = new Map<number, AdminVideoJobAIGIFReview>();
     for (const item of detailReviews) {
@@ -707,6 +931,10 @@ export default function AdminHighlightJobDetailPage() {
   }, [detail?.ai_gif_directives]);
   const ai1InputPayload = useMemo(
     () => extractUsageInputPayload(ai1Usage.latest, "director"),
+    [ai1Usage.latest]
+  );
+  const ai1DebugPayload = useMemo(
+    () => extractUsageDebugPayload(ai1Usage.latest, "director"),
     [ai1Usage.latest]
   );
   const ai1FixedTemplate = useMemo(
@@ -753,20 +981,64 @@ export default function AdminHighlightJobDetailPage() {
     () => extractUsageInputPayload(ai2Usage.latest, "planner"),
     [ai2Usage.latest]
   );
+  const ai3InputPayload = useMemo(
+    () => extractUsageInputPayload(ai3Usage.latest, "judge"),
+    [ai3Usage.latest]
+  );
+  const ai3InputForDisplay = useMemo(
+    () =>
+      ai3InputPayload || {
+        job_id: detail?.job?.id || 0,
+        sample_size: detailOutputs.length,
+        note: "未命中 judge_input_payload_v1，使用页面重建摘要展示。",
+      },
+    [ai3InputPayload, detail?.job?.id, detailOutputs.length]
+  );
+  const ai1Metadata = useMemo(() => asRecord(ai1Usage.latest?.metadata), [ai1Usage.latest?.metadata]);
   const ai1InputForDisplay = useMemo(() => {
     if (ai1InputPayload) return ai1InputPayload;
     if (ai1Directive?.input_context && typeof ai1Directive.input_context === "object") {
       return ai1Directive.input_context;
     }
     return {
+      schema_version: "ai1_input_fallback_v0",
+      task: {
+        business_scene: "social_spread",
+      },
+      source: {
+        title: detail?.job?.title || "",
+      },
+      note: "未命中 director_model_payload_v2，使用回退摘要展示。",
+    };
+  }, [ai1Directive?.input_context, ai1InputPayload, detail?.job?.title]);
+  const ai1DebugForDisplay = useMemo(() => {
+    if (ai1DebugPayload) return ai1DebugPayload;
+    const fallback: Record<string, unknown> = {
       job_id: detail?.job?.id || 0,
       title: detail?.job?.title || "",
-      note: "未命中 director_input_payload_v1，使用回退摘要展示。",
+      note: "未命中 director_debug_context_v1，使用摘要回退。",
     };
-  }, [ai1Directive?.input_context, ai1InputPayload, detail?.job?.id, detail?.job?.title]);
+    if (ai1Metadata.director_input_mode_requested) {
+      fallback.source_input_mode_requested = ai1Metadata.director_input_mode_requested;
+    }
+    if (ai1Metadata.director_input_mode_applied) {
+      fallback.source_input_mode_applied = ai1Metadata.director_input_mode_applied;
+    }
+    if (ai1Metadata.director_input_source) {
+      fallback.source_input_type = ai1Metadata.director_input_source;
+    }
+    if (ai1Metadata.frame_count !== undefined) {
+      fallback.frame_count = ai1Metadata.frame_count;
+    }
+    return fallback;
+  }, [ai1DebugPayload, ai1Metadata, detail?.job?.id, detail?.job?.title]);
   const ai1InputForDisplayMasked = useMemo(
     () => maskSensitiveValue(ai1InputForDisplay),
     [ai1InputForDisplay]
+  );
+  const ai1DebugForDisplayMasked = useMemo(
+    () => maskSensitiveValue(ai1DebugForDisplay),
+    [ai1DebugForDisplay]
   );
   const ai2InputForDisplay = useMemo(() => {
     if (ai2InputPayload) return ai2InputPayload;
@@ -790,14 +1062,13 @@ export default function AdminHighlightJobDetailPage() {
       note: "未命中 planner_input_payload_v1，使用页面重建摘要展示。",
     };
   }, [ai1Directive, ai2InputPayload, detail?.job?.id, detail?.job?.title]);
-  const ai3InputPayload = useMemo(
-    () => extractUsageInputPayload(ai3Usage.latest, "judge"),
-    [ai3Usage.latest]
-  );
-  const ai1Metadata = useMemo(() => asRecord(ai1Usage.latest?.metadata), [ai1Usage.latest?.metadata]);
   const ai1InputContextRecord = useMemo(
     () => asRecord(ai1InputForDisplayMasked),
     [ai1InputForDisplayMasked]
+  );
+  const ai1DebugContextRecord = useMemo(
+    () => asRecord(ai1DebugForDisplayMasked),
+    [ai1DebugForDisplayMasked]
   );
   const ai1InputFieldRows = useMemo(
     () =>
@@ -809,8 +1080,18 @@ export default function AdminHighlightJobDetailPage() {
       })),
     [ai1InputContextRecord]
   );
+  const ai1DebugFieldRows = useMemo(
+    () =>
+      AI1_DEBUG_FIELD_SPECS.map((spec) => ({
+        path: spec.path,
+        label: spec.label,
+        note: spec.note,
+        value: getValueByPath(ai1DebugContextRecord, spec.path),
+      })),
+    [ai1DebugContextRecord]
+  );
   const ai1FrameManifestRows = useMemo(() => {
-    const raw = ai1InputContextRecord.frame_manifest;
+    const raw = ai1DebugContextRecord.frame_manifest;
     if (!Array.isArray(raw)) return [] as Array<{ index: number; timestamp_sec?: number; bytes?: number }>;
     const out: Array<{ index: number; timestamp_sec?: number; bytes?: number }> = [];
     for (const item of raw) {
@@ -825,54 +1106,54 @@ export default function AdminHighlightJobDetailPage() {
       });
     }
     return out;
-  }, [ai1InputContextRecord.frame_manifest]);
+  }, [ai1DebugContextRecord.frame_manifest]);
   const ai1InputModeRequested = useMemo(
     () =>
       String(
         ai1Metadata.director_input_mode_requested ||
           ai1Metadata.source_input_mode_requested ||
-          ai1InputContextRecord.source_input_mode_requested ||
+          ai1DebugContextRecord.source_input_mode_requested ||
           "-"
       ),
-    [ai1InputContextRecord.source_input_mode_requested, ai1Metadata.director_input_mode_requested, ai1Metadata.source_input_mode_requested]
+    [ai1DebugContextRecord.source_input_mode_requested, ai1Metadata.director_input_mode_requested, ai1Metadata.source_input_mode_requested]
   );
   const ai1InputModeApplied = useMemo(
     () =>
       String(
         ai1Metadata.director_input_mode_applied ||
           ai1Metadata.source_input_mode_applied ||
-          ai1InputContextRecord.source_input_mode_applied ||
+          ai1DebugContextRecord.source_input_mode_applied ||
           "-"
       ),
-    [ai1InputContextRecord.source_input_mode_applied, ai1Metadata.director_input_mode_applied, ai1Metadata.source_input_mode_applied]
+    [ai1DebugContextRecord.source_input_mode_applied, ai1Metadata.director_input_mode_applied, ai1Metadata.source_input_mode_applied]
   );
   const ai1InputSource = useMemo(
     () =>
       String(
         ai1Metadata.director_input_source ||
           ai1Metadata.candidate_source ||
-          ai1InputContextRecord.source_input_type ||
+          ai1DebugContextRecord.source_input_type ||
           "-"
       ),
-    [ai1InputContextRecord.source_input_type, ai1Metadata.candidate_source, ai1Metadata.director_input_source]
+    [ai1DebugContextRecord.source_input_type, ai1Metadata.candidate_source, ai1Metadata.director_input_source]
   );
   const ai1SourceVideoURLAvailable = useMemo(() => {
     const raw =
       ai1Metadata.source_video_url_available ??
-      ai1InputContextRecord.source_video_url_available ??
+      ai1DebugContextRecord.source_video_url_available ??
       false;
     if (typeof raw === "boolean") return raw;
     if (typeof raw === "string") return raw === "true" || raw === "1";
     if (typeof raw === "number") return raw > 0;
     return false;
-  }, [ai1InputContextRecord.source_video_url_available, ai1Metadata.source_video_url_available]);
+  }, [ai1DebugContextRecord.source_video_url_available, ai1Metadata.source_video_url_available]);
   const ai1FrameCount = useMemo(() => {
     const fromMeta = parseNumberValue(ai1Metadata.frame_count);
     if (typeof fromMeta === "number") return Math.max(0, Math.round(fromMeta));
-    const fromInput = parseNumberValue(ai1InputContextRecord.frame_count);
+    const fromInput = parseNumberValue(ai1DebugContextRecord.frame_count);
     if (typeof fromInput === "number") return Math.max(0, Math.round(fromInput));
     return 0;
-  }, [ai1InputContextRecord.frame_count, ai1Metadata.frame_count]);
+  }, [ai1DebugContextRecord.frame_count, ai1Metadata.frame_count]);
 
   const ai1OutputForDisplay = useMemo(
     () => ({
@@ -1045,12 +1326,7 @@ export default function AdminHighlightJobDetailPage() {
       {
         key: "ai3",
         label: "AI3（Judge）",
-        input:
-          ai3InputPayload || {
-            job_id: detail?.job?.id || 0,
-            sample_size: detailOutputs.length,
-            note: "未命中 judge_input_payload_v1，使用页面重建摘要展示。",
-          },
+        input: ai3InputForDisplay,
         output: ai3OutputForDisplay,
         duration_ms: ai3Stage?.duration_ms || ai3Usage.durationMs,
         input_tokens: ai3Usage.inputTokens,
@@ -1077,7 +1353,7 @@ export default function AdminHighlightJobDetailPage() {
     ai2Usage.latest?.request_error,
     ai2Usage.latest?.request_status,
     ai2Usage.outputTokens,
-    ai3InputPayload,
+    ai3InputForDisplay,
     ai3OutputForDisplay,
     ai3Usage.costUSD,
     ai3Usage.durationMs,
@@ -1085,12 +1361,105 @@ export default function AdminHighlightJobDetailPage() {
     ai3Usage.latest?.request_error,
     ai3Usage.latest?.request_status,
     ai3Usage.outputTokens,
-    detail?.job?.id,
-    detailOutputs.length,
     scoringInputForDisplay,
     scoringOutputForDisplay,
     subStageByKey,
   ]);
+
+  const aiCompareRows = useMemo(
+    () => stageComparisonRows.filter((row) => row.key === "ai1" || row.key === "ai2" || row.key === "ai3"),
+    [stageComparisonRows]
+  );
+  const detailAnomalies = useMemo<DetailAnomalyItem[]>(() => {
+    const ai1Row = stageComparisonRows.find((row) => row.key === "ai1");
+    const ai1Status = String(ai1Row?.status || "").trim().toLowerCase();
+    const outputWithoutEvaluationCount = detailOutputs.filter((item) => !evalByOutputID.has(item.id)).length;
+    const outputWithoutFeedbackCount = detailOutputs.filter((item) => !feedbackByOutputID.has(item.id)).length;
+    const proposalUnmappedCount = detailProposalChains.filter((item) => !item.proposal).length;
+    const ai1Failed =
+      (!!ai1Row?.error || ["failed", "error"].includes(ai1Status)) &&
+      (Number(ai1Usage.calls || 0) > 0 || String(subStageByKey.get("briefing")?.status || "").trim() !== "");
+    const ai2EmptyProposal =
+      detailProposals.length <= 0 &&
+      (Number(ai2Usage.calls || 0) > 0 ||
+        ["done", "failed", "cancelled", "planning", "reviewing", "rendering", "uploading"].includes(
+          String(detail?.job?.stage || "").trim().toLowerCase()
+        ) ||
+        detailOutputs.length > 0);
+    const ai3NoReview =
+      detailOutputs.length > 0 &&
+      detailReviews.length <= 0 &&
+      (Number(ai3Usage.calls || 0) > 0 ||
+        ["done", "failed", "cancelled", "reviewing"].includes(String(detail?.job?.stage || "").trim().toLowerCase()));
+
+    return [
+      {
+        key: "ai1_failed",
+        label: "AI1失败",
+        severity: "high",
+        count: ai1Failed ? 1 : 0,
+        active: ai1Failed,
+        detail: ai1Failed ? `AI1 状态=${ai1Status || "-"}；${ai1Row?.error || "存在失败/错误信号"}` : "AI1 未见失败信号。",
+      },
+      {
+        key: "ai2_empty_proposal",
+        label: "AI2空提案",
+        severity: "high",
+        count: ai2EmptyProposal ? 1 : 0,
+        active: ai2EmptyProposal,
+        detail: ai2EmptyProposal ? "AI2 已执行或任务已进入后续阶段，但 proposal 数为 0。" : `proposal_count=${detailProposals.length}`,
+      },
+      {
+        key: "ai3_no_review",
+        label: "AI3无复审",
+        severity: "high",
+        count: ai3NoReview ? 1 : 0,
+        active: ai3NoReview,
+        detail: ai3NoReview ? `outputs=${detailOutputs.length}，reviews=0。` : `review_count=${detailReviews.length}`,
+      },
+      {
+        key: "proposal_unmapped",
+        label: "Proposal未映射",
+        severity: "medium",
+        count: proposalUnmappedCount,
+        active: proposalUnmappedCount > 0,
+        detail: proposalUnmappedCount > 0 ? "存在链路未回连 proposal。" : "所有链路都已回连 proposal。",
+      },
+      {
+        key: "output_without_evaluation",
+        label: "Output无评分",
+        severity: "medium",
+        count: outputWithoutEvaluationCount,
+        active: outputWithoutEvaluationCount > 0,
+        detail: outputWithoutEvaluationCount > 0 ? "存在 output 未找到 evaluation。" : "所有 output 都已有评分。",
+      },
+      {
+        key: "output_without_feedback",
+        label: "Output无反馈",
+        severity: "low",
+        count: outputWithoutFeedbackCount,
+        active: outputWithoutFeedbackCount > 0,
+        detail: outputWithoutFeedbackCount > 0 ? "存在 output 尚未收到用户反馈。" : "所有 output 都已有反馈。",
+      },
+    ];
+  }, [
+    ai1Usage.calls,
+    ai2Usage.calls,
+    ai3Usage.calls,
+    detail?.job?.stage,
+    detailOutputs,
+    detailProposalChains,
+    detailProposals.length,
+    detailReviews.length,
+    evalByOutputID,
+    feedbackByOutputID,
+    stageComparisonRows,
+    subStageByKey,
+  ]);
+  const activeDetailAnomalyCount = useMemo(
+    () => detailAnomalies.filter((item) => item.active).length,
+    [detailAnomalies]
+  );
 
   const sourceReadability = useMemo(
     () => asRecord(detail?.job?.metrics?.source_video_readability_v1),
@@ -1111,6 +1480,54 @@ export default function AdminHighlightJobDetailPage() {
     () => parseBoolValue(sourceReadability.permanent),
     [sourceReadability.permanent]
   );
+  const auditExportPayload = useMemo(
+    () => ({
+      exported_at: new Date().toISOString(),
+      job_id: detail?.job?.id || 0,
+      job_title: detail?.job?.title || "",
+      summary: detail?.summary || {},
+      job: detail?.job || null,
+      source_readability: sourceReadability,
+      ai_prompt_blocks: {
+        ai1_fixed_prompt: ai1FixedPromptText,
+        ai1_editable_prompt: ai1EditablePromptText,
+        ai1_output_contract: AI1_OUTPUT_CONTRACT_TEXT,
+        ai1_system_prompt_assembled: ai1SystemPromptAssembled,
+      },
+      ai_compare_rows: aiCompareRows.map((row) => ({
+        key: row.key,
+        label: row.label,
+        status: row.status,
+        duration_ms: row.duration_ms,
+        input_tokens: row.input_tokens,
+        output_tokens: row.output_tokens,
+        cost_usd: row.cost_usd,
+        error: row.error,
+        input: row.input,
+        output: row.output,
+      })),
+      anomaly_summary: detailAnomalies,
+      proposal_chains: detailProposalChains,
+      raw_detail_response: detail,
+      prompt_templates: ai1PromptTemplates,
+    }),
+    [
+      ai1EditablePromptText,
+      ai1FixedPromptText,
+      ai1PromptTemplates,
+      ai1SystemPromptAssembled,
+      aiCompareRows,
+      detailAnomalies,
+      detail,
+      detailProposalChains,
+      sourceReadability,
+    ]
+  );
+  const handleExportAuditPackage = useCallback(() => {
+    if (!jobID || !detail) return;
+    const filename = `video-job-${jobID}-audit-package-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    downloadTextFile(filename, safeJSONStringify(auditExportPayload));
+  }, [auditExportPayload, detail, jobID]);
 
   return (
     <div className="space-y-6">
@@ -1125,6 +1542,13 @@ export default function AdminHighlightJobDetailPage() {
               disabled={loading || !jobID}
             >
               {loading ? "加载中..." : "刷新"}
+            </button>
+            <button
+              className="rounded-xl border border-sky-200 px-4 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={handleExportAuditPackage}
+              disabled={!detail || !jobID}
+            >
+              导出审计包 JSON
             </button>
             <Link
               href="/admin/users/highlight-jobs"
@@ -1430,6 +1854,22 @@ export default function AdminHighlightJobDetailPage() {
                         流程总览
                       </a>
                       <a
+                        href="#stage-anomalies"
+                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
+                          openSections.anomalies
+                            ? "border-rose-300 bg-rose-100 text-rose-800"
+                            : "border-rose-200 text-rose-700 hover:bg-rose-50"
+                        }`}
+                      >
+                        异常摘要
+                      </a>
+                      <a
+                        href="#stage-ai-compare"
+                        className="whitespace-nowrap rounded-lg border border-sky-200 px-2.5 py-1 text-[11px] font-medium text-sky-700 transition hover:bg-sky-50"
+                      >
+                        AI对照块
+                      </a>
+                      <a
                         href="#stage-ai1"
                         className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
                           openSections.ai1
@@ -1438,6 +1878,16 @@ export default function AdminHighlightJobDetailPage() {
                         }`}
                       >
                         AI1
+                      </a>
+                      <a
+                        href="#stage-proposal-chains"
+                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
+                          openSections.proposal_chains
+                            ? "border-violet-300 bg-violet-100 text-violet-800"
+                            : "border-violet-200 text-violet-700 hover:bg-violet-50"
+                        }`}
+                      >
+                        Proposal链
                       </a>
                       <a
                         href="#stage-ai2"
@@ -1480,6 +1930,16 @@ export default function AdminHighlightJobDetailPage() {
                         GIF结果产出
                       </a>
                       <a
+                        href="#stage-appendix"
+                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
+                          openSections.appendix
+                            ? "border-slate-300 bg-slate-100 text-slate-800"
+                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        原始附录
+                      </a>
+                      <a
                         href="#stage-events"
                         className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
                           openSections.events
@@ -1512,6 +1972,124 @@ export default function AdminHighlightJobDetailPage() {
             </div>
           </div>
 
+          <section id="stage-anomalies" className="rounded-2xl border border-rose-100 bg-rose-50/30 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-rose-800">阶段异常摘要</div>
+                <div className="text-[11px] text-slate-500">把列表页异常下钻到当前任务，直接定位是 AI1、AI2、AI3 还是链路映射问题。</div>
+              </div>
+              <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${activeDetailAnomalyCount > 0 ? "border-rose-200 bg-white text-rose-700" : "border-emerald-200 bg-white text-emerald-700"}`}>
+                {activeDetailAnomalyCount > 0 ? `异常 ${activeDetailAnomalyCount}` : "无活动异常"}
+              </div>
+            </div>
+            <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {detailAnomalies.map((item) => (
+                <div key={`detail-anomaly-card-${item.key}`} className={`rounded-xl border px-3 py-2 text-xs ${anomalyTone(item.severity, item.active)}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold">{item.label}</div>
+                    <div className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold">
+                      {item.active ? item.count : "OK"}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[11px] opacity-90">{item.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-rose-100 bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-rose-50 text-rose-700">
+                  <tr>
+                    <th className="px-3 py-2">异常项</th>
+                    <th className="px-3 py-2">级别</th>
+                    <th className="px-3 py-2">状态/计数</th>
+                    <th className="px-3 py-2">说明</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-rose-50 text-slate-700">
+                  {detailAnomalies.map((item) => (
+                    <tr key={`detail-anomaly-row-${item.key}`}>
+                      <td className="px-3 py-2 font-medium">{item.label}</td>
+                      <td className="px-3 py-2 uppercase">{item.severity}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${anomalyTone(item.severity, item.active)}`}>
+                          {item.active ? `异常 · ${item.count}` : "正常"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{item.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="stage-ai-compare" className="rounded-2xl border border-sky-100 bg-sky-50/40 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-sky-800">AI1 / AI2 / AI3 输入输出对照块</div>
+                <div className="text-[11px] text-slate-500">用于直接复制阶段输入输出，给运营排查、回放和比对模板变化。</div>
+              </div>
+            </div>
+            <div className="grid gap-3 xl:grid-cols-3">
+              {aiCompareRows.map((row) => (
+                <article key={`ai-compare-card-${row.key}`} className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm shadow-sky-100/40">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{row.label}</div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        耗时 {formatDurationMs(row.duration_ms)} · tokens{" "}
+                        {typeof row.input_tokens === "number" || typeof row.output_tokens === "number"
+                          ? `${Number(row.input_tokens || 0)} / ${Number(row.output_tokens || 0)}`
+                          : "-"}{" "}
+                        · 成本 {formatCurrency(row.cost_usd, "USD")}
+                      </div>
+                    </div>
+                    <div className={`rounded-full border px-2 py-0.5 text-[11px] ${row.error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                      {row.status || "-"}
+                    </div>
+                  </div>
+                  {row.error ? (
+                    <div className="mb-2 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">
+                      {row.error}
+                    </div>
+                  ) : null}
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-2">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-semibold text-sky-700">输入 JSON</div>
+                        <button
+                          type="button"
+                          className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[10px] font-medium text-sky-700 hover:bg-sky-50"
+                          onClick={() => void handleCopyJSON(`${row.key}-input`, row.input)}
+                        >
+                          {copiedKey === `${row.key}-input` ? "已复制" : "复制输入"}
+                        </button>
+                      </div>
+                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-2 text-[11px] text-slate-600">
+                        {safeJSONStringify(row.input)}
+                      </pre>
+                    </div>
+                    <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-2">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-semibold text-sky-700">输出 JSON</div>
+                        <button
+                          type="button"
+                          className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[10px] font-medium text-sky-700 hover:bg-sky-50"
+                          onClick={() => void handleCopyJSON(`${row.key}-output`, row.output)}
+                        >
+                          {copiedKey === `${row.key}-output` ? "已复制" : "复制输出"}
+                        </button>
+                      </div>
+                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-2 text-[11px] text-slate-600">
+                        {safeJSONStringify(row.output)}
+                      </pre>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section id="stage-ai1" className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-sm font-semibold text-indigo-800">AI1（Prompt Director）</div>
@@ -1539,8 +2117,8 @@ export default function AdminHighlightJobDetailPage() {
                   </div>
                   <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">AI1 输入字段总览（带中文注释）</div>
-                      <div className="text-[10px] text-slate-500">来源：director_input_payload_v1</div>
+                      <div className="text-[11px] font-semibold text-indigo-700">AI1 模型输入字段总览（带中文注释）</div>
+                      <div className="text-[10px] text-slate-500">来源：director_model_payload_v2（回退 director_input_payload_v1）</div>
                     </div>
                     <div className="max-h-72 overflow-auto rounded-lg border border-indigo-100">
                       <table className="w-full text-left text-[11px]">
@@ -1568,10 +2146,45 @@ export default function AdminHighlightJobDetailPage() {
                         </tbody>
                       </table>
                     </div>
+                    <details className="mt-2 rounded-lg border border-indigo-100 bg-slate-50/60 p-2">
+                      <summary className="cursor-pointer text-[11px] font-medium text-indigo-700">
+                        查看 AI1 模型输入原始 JSON（已脱敏）
+                      </summary>
+                      <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[10px] text-slate-600">
+                        {safeJSONStringify(ai1InputForDisplayMasked)}
+                      </pre>
+                    </details>
                     <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">frame_manifest 子字段说明</div>
-                      <div className="mt-1 text-[10px] text-slate-600">
-                        index：采样帧序号；timestamp_sec：采样时间点（秒）；bytes：帧大小（字节）。
+                      <div className="mb-1 text-[11px] font-semibold text-indigo-700">AI1 调试上下文（不发模型）</div>
+                      <div className="text-[10px] text-slate-600">来源：director_debug_context_v1（回退 director_input_payload_v1）</div>
+                      <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-indigo-100 bg-white">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-indigo-50 text-indigo-700">
+                            <tr>
+                              <th className="px-2 py-1.5">字段路径</th>
+                              <th className="px-2 py-1.5">字段名称</th>
+                              <th className="px-2 py-1.5">当前值</th>
+                              <th className="px-2 py-1.5">中文注释</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-indigo-50 text-slate-700">
+                            {ai1DebugFieldRows.map((item) => (
+                              <tr key={`ai1-debug-field-${item.path}`} className="align-top">
+                                <td className="px-2 py-1.5 font-mono text-[10px] text-slate-600">{item.path}</td>
+                                <td className="px-2 py-1.5">{item.label}</td>
+                                <td className="px-2 py-1.5">
+                                  <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-50 px-1.5 py-1 text-[10px] text-slate-600">
+                                    {safeJSONStringify(item.value ?? null)}
+                                  </pre>
+                                </td>
+                                <td className="px-2 py-1.5 text-[10px] text-slate-600">{item.note}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-2 text-[10px] text-slate-600">
+                        frame_manifest 子字段：index（序号）/ timestamp_sec（秒）/ bytes（帧字节大小，仅调试展示）。
                       </div>
                       {ai1FrameManifestRows.length > 0 ? (
                         <div className="mt-1 max-h-32 overflow-auto rounded border border-indigo-100 bg-white">
@@ -1597,15 +2210,15 @@ export default function AdminHighlightJobDetailPage() {
                       ) : (
                         <div className="mt-1 text-[10px] text-slate-500">本次未使用帧输入（frame_count=0）。</div>
                       )}
+                      <details className="mt-2 rounded-lg border border-indigo-100 bg-slate-50/60 p-2">
+                        <summary className="cursor-pointer text-[11px] font-medium text-indigo-700">
+                          查看 AI1 调试上下文原始 JSON（已脱敏）
+                        </summary>
+                        <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[10px] text-slate-600">
+                          {safeJSONStringify(ai1DebugForDisplayMasked)}
+                        </pre>
+                      </details>
                     </div>
-                    <details className="mt-2 rounded-lg border border-indigo-100 bg-slate-50/60 p-2">
-                      <summary className="cursor-pointer text-[11px] font-medium text-indigo-700">
-                        查看 AI1 输入原始 JSON（已脱敏）
-                      </summary>
-                      <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[10px] text-slate-600">
-                        {safeJSONStringify(ai1InputForDisplayMasked)}
-                      </pre>
-                    </details>
                   </div>
                   <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
                     <div className="text-[11px] text-slate-500">AI1 输出（directive）</div>
@@ -1618,8 +2231,17 @@ export default function AdminHighlightJobDetailPage() {
                   <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-[11px] font-semibold text-indigo-700">第一段：系统提示（固定层 / fixed）</div>
-                      <div className="text-[11px] text-slate-500">
-                        v{ai1FixedTemplate?.version || "-"} · {ai1FixedTemplate?.resolved_from || "built-in"}
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] text-slate-500">
+                          v{ai1FixedTemplate?.version || "-"} · {ai1FixedTemplate?.resolved_from || "built-in"}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
+                          onClick={() => void handleCopyJSON("ai1-fixed-prompt", ai1FixedPromptText)}
+                        >
+                          {copiedKey === "ai1-fixed-prompt" ? "已复制" : "复制原文"}
+                        </button>
                       </div>
                     </div>
                     <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
@@ -1629,8 +2251,17 @@ export default function AdminHighlightJobDetailPage() {
                   <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-[11px] font-semibold text-indigo-700">第二段：系统提示（可编辑层 / editable）</div>
-                      <div className="text-[11px] text-slate-500">
-                        v{ai1EditableTemplate?.version || "-"} · enabled {String(ai1EditableTemplate?.enabled ?? false)}
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] text-slate-500">
+                          v{ai1EditableTemplate?.version || "-"} · enabled {String(ai1EditableTemplate?.enabled ?? false)}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
+                          onClick={() => void handleCopyJSON("ai1-editable-prompt", ai1EditablePromptText)}
+                        >
+                          {copiedKey === "ai1-editable-prompt" ? "已复制" : "复制原文"}
+                        </button>
                       </div>
                     </div>
                     <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
@@ -1638,7 +2269,16 @@ export default function AdminHighlightJobDetailPage() {
                     </pre>
                   </div>
                   <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
-                    <div className="text-[11px] font-semibold text-indigo-700">第三段：输出契约（output contract）</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold text-indigo-700">第三段：输出契约（output contract）</div>
+                      <button
+                        type="button"
+                        className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
+                        onClick={() => void handleCopyJSON("ai1-output-contract", AI1_OUTPUT_CONTRACT_TEXT)}
+                      >
+                        {copiedKey === "ai1-output-contract" ? "已复制" : "复制原文"}
+                      </button>
+                    </div>
                     <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
                       {AI1_OUTPUT_CONTRACT_TEXT}
                     </pre>
@@ -1647,7 +2287,16 @@ export default function AdminHighlightJobDetailPage() {
                     </div>
                   </div>
                   <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-2 text-xs text-slate-700">
-                    <div className="mb-1 text-[11px] font-semibold text-indigo-700">AI1 最终 system prompt（完整三段拼接）</div>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold text-indigo-700">AI1 最终 system prompt（完整三段拼接）</div>
+                      <button
+                        type="button"
+                        className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
+                        onClick={() => void handleCopyJSON("ai1-system-prompt-assembled", ai1SystemPromptAssembled)}
+                      >
+                        {copiedKey === "ai1-system-prompt-assembled" ? "已复制" : "复制原文"}
+                      </button>
+                    </div>
                     <pre className="whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
                       {ai1SystemPromptAssembled}
                     </pre>
@@ -1659,9 +2308,25 @@ export default function AdminHighlightJobDetailPage() {
             )}
           </section>
 
+          <section id="stage-appendix" className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-800">原始数据附录</div>
+                <div className="text-[11px] text-slate-500">保留原始平铺表，供运营做低层排查；主视图请优先看上面的 proposal-first 链。</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={() => toggleSection("appendix")}
+              >
+                {openSections.appendix ? "收起" : "展开"}
+              </button>
+            </div>
+            {openSections.appendix ? (
+              <div className="space-y-4">
           <section id="stage-ai2" className="rounded-2xl border border-blue-100 bg-blue-50/30 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-blue-800">AI2（Planner）</div>
+              <div className="text-sm font-semibold text-blue-800">原始表：AI2（Planner）</div>
               <button
                 type="button"
                 className="rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
@@ -1686,7 +2351,16 @@ export default function AdminHighlightJobDetailPage() {
                   </div>
                 </div>
                 <div className="mb-2 rounded-xl border border-blue-100 bg-white p-2 text-xs text-slate-700">
-                  <div className="text-[11px] text-slate-500">AI2 输入（payload）</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] text-slate-500">AI2 输入（payload）</div>
+                    <button
+                      type="button"
+                      className="rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-medium text-blue-700 hover:bg-blue-50"
+                      onClick={() => void handleCopyJSON("ai2-payload", ai2InputForDisplay)}
+                    >
+                      {copiedKey === "ai2-payload" ? "已复制" : "复制原文"}
+                    </button>
+                  </div>
                   <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-600">
                     {safeJSONStringify(ai2InputForDisplay)}
                   </pre>
@@ -1734,9 +2408,350 @@ export default function AdminHighlightJobDetailPage() {
             )}
           </section>
 
+          <section id="stage-proposal-chains" className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-violet-800">AI2 提案执行链（Proposal-first）</div>
+              <button
+                type="button"
+                className="rounded-lg border border-violet-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50"
+                onClick={() => toggleSection("proposal_chains")}
+              >
+                {openSections.proposal_chains ? "收起" : "展开"}
+              </button>
+            </div>
+            {openSections.proposal_chains ? (
+              <>
+                <div className="mb-3 grid gap-2 text-xs text-slate-700 md:grid-cols-2 xl:grid-cols-6">
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    链路数：{detailProposalChains.length}
+                    <div className="mt-1 text-[11px] text-slate-500">未映射链 {proposalChainSummary.unlinkedChains}</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    Worker 产物：{proposalChainSummary.outputCount}
+                    <div className="mt-1 text-[11px] text-slate-500">评分 {proposalChainSummary.evaluationCount} · 复审 {proposalChainSummary.reviewCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    用户反馈：{proposalChainSummary.feedbackCount}
+                    <div className="mt-1 text-[11px] text-slate-500">proposal → output → feedback 已归链</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    rerender：{proposalChainSummary.rerenderCount}
+                    <div className="mt-1 text-[11px] text-slate-500">人工/运维介入记录</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    deliver：{proposalChainSummary.deliverCount}
+                    <div className="mt-1 text-[11px] text-slate-500">keep_internal {proposalChainSummary.keepInternalCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-violet-100 bg-white px-3 py-2">
+                    reject：{proposalChainSummary.rejectCount}
+                    <div className="mt-1 text-[11px] text-slate-500">need_manual_review {proposalChainSummary.needManualReviewCount}</div>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {detailProposalChains.map((chain, index) => {
+                    const outputs = Array.isArray(chain.outputs) ? chain.outputs : [];
+                    const evaluations = Array.isArray(chain.evaluations) ? chain.evaluations : [];
+                    const reviews = Array.isArray(chain.reviews) ? chain.reviews : [];
+                    const feedbacks = Array.isArray(chain.feedbacks) ? chain.feedbacks : [];
+                    const rerenders = Array.isArray(chain.rerenders) ? chain.rerenders : [];
+                    const chainRenderElapsedMs = outputs.reduce((acc, output) => {
+                      const meta = output.metadata || {};
+                      return acc + Number(meta.render_elapsed_ms || 0);
+                    }, 0);
+                    const chainUploadElapsedMs = outputs.reduce((acc, output) => {
+                      const meta = output.metadata || {};
+                      return acc + Number(meta.upload_elapsed_ms || 0);
+                    }, 0);
+                    const chainOutputBytes = outputs.reduce((acc, output) => acc + Number(output.size_bytes || 0), 0);
+                    const feedbackActionCounts = Object.entries(chain.summary?.feedback_action_counts || {}).sort((a, b) => {
+                      if (b[1] !== a[1]) return b[1] - a[1];
+                      return a[0].localeCompare(b[0]);
+                    });
+                    const latestRecommendation =
+                      chain.summary?.latest_recommendation ||
+                      reviews[reviews.length - 1]?.final_recommendation ||
+                      "";
+                    return (
+                      <article key={chain.chain_key || `proposal-chain-${index}`} className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm shadow-violet-100/30">
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold text-slate-800">
+                                {chain.proposal
+                                  ? `Proposal #${chain.proposal.proposal_rank || "-"} · ID ${chain.proposal.id}`
+                                  : `未映射链 · ${chain.chain_key}`}
+                              </div>
+                              <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700">
+                                {chain.chain_type || "proposal"}
+                              </span>
+                              <span className={`rounded-full border px-2 py-0.5 text-[11px] ${reviewStatusTone(latestRecommendation)}`}>
+                                {reviewStatusLabel(latestRecommendation || "未复审")}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              outputs {chain.summary?.output_count || 0} · evaluations {chain.summary?.evaluation_count || 0} · reviews {chain.summary?.review_count || 0} · feedback {chain.summary?.feedback_count || 0} · rerender {chain.summary?.rerender_count || 0}
+                            </div>
+                          </div>
+                          <div className="grid min-w-[220px] grid-cols-2 gap-2 text-[11px] text-slate-600 md:min-w-[280px]">
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-2 py-1.5">deliver：{chain.summary?.deliver_count || 0}</div>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-2 py-1.5">keep：{chain.summary?.keep_internal_count || 0}</div>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-2 py-1.5">reject：{chain.summary?.reject_count || 0}</div>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-2 py-1.5">manual：{chain.summary?.need_manual_review_count || 0}</div>
+                          </div>
+                        </div>
+
+                        <div className="mb-3 grid gap-2 text-[11px] text-slate-600 md:grid-cols-2 xl:grid-cols-5">
+                          <div className="rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2">
+                            <div className="text-slate-500">AI2 成本</div>
+                            <div className="mt-1 font-medium text-slate-800">{formatCurrency(ai2Usage.costUSD, "USD")}</div>
+                            <div className="text-[10px] text-slate-400">任务级共享</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2">
+                            <div className="text-slate-500">AI3 成本</div>
+                            <div className="mt-1 font-medium text-slate-800">{formatCurrency(ai3Usage.costUSD, "USD")}</div>
+                            <div className="text-[10px] text-slate-400">任务级共享</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2">
+                            <div className="text-slate-500">本链渲染耗时</div>
+                            <div className="mt-1 font-medium text-slate-800">{formatDurationMs(chainRenderElapsedMs)}</div>
+                            <div className="text-[10px] text-slate-400">worker outputs 汇总</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2">
+                            <div className="text-slate-500">本链上传耗时</div>
+                            <div className="mt-1 font-medium text-slate-800">{formatDurationMs(chainUploadElapsedMs)}</div>
+                            <div className="text-[10px] text-slate-400">worker outputs 汇总</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2">
+                            <div className="text-slate-500">本链产物体积</div>
+                            <div className="mt-1 font-medium text-slate-800">{formatBytes(chainOutputBytes)}</div>
+                            <div className="text-[10px] text-slate-400">output size 汇总</div>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 xl:grid-cols-4">
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-700">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">AI2 提案</div>
+                            {chain.proposal ? (
+                              <div className="space-y-2">
+                                <div>
+                                  <div className="font-medium text-slate-800">
+                                    {formatScore(chain.proposal.start_sec)}s ~ {formatScore(chain.proposal.end_sec)}s
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    时长 {formatScore(chain.proposal.duration_sec)}s · base {formatScore(chain.proposal.base_score)}
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-600">
+                                  standalone {formatScore(chain.proposal.standalone_confidence)} · loop hint {formatScore(chain.proposal.loop_friendliness_hint)}
+                                </div>
+                                <div className="text-[11px] text-slate-600">
+                                  expected value：{chain.proposal.expected_value_level || "-"}
+                                </div>
+                                <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-600">
+                                  {(chain.proposal.semantic_tags || []).join(" / ") || "无语义标签"}
+                                </div>
+                                <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-5 text-slate-600">
+                                  {chain.proposal.proposal_reason || "无提名理由"}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-2 py-3 text-[11px] text-slate-500">
+                                该链没有映射到 AI2 proposal。说明存在 output / evaluation / review 未回连 proposal_id，需要继续收口主键链。
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-700">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Worker 产物</div>
+                            <div className="space-y-3">
+                              {outputs.map((output) => {
+                                const meta = output.metadata || {};
+                                return (
+                                  <div key={`chain-output-${chain.chain_key}-${output.id}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                    {output.url ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={output.url} alt={`output-${output.id}`} className="h-28 w-full bg-slate-100 object-contain" />
+                                    ) : (
+                                      <div className="flex h-28 items-center justify-center bg-slate-100 text-[11px] text-slate-400">无预览</div>
+                                    )}
+                                    <div className="space-y-1 px-2 py-2 text-[11px] text-slate-600">
+                                      <div className="font-medium text-slate-800">output #{output.id}</div>
+                                      <div>{output.width || 0}x{output.height || 0} · {formatBytes(output.size_bytes)}</div>
+                                      <div>
+                                        render {formatDurationMs(parseNumberValue(meta.render_elapsed_ms))} · upload {formatDurationMs(parseNumberValue(meta.upload_elapsed_ms))}
+                                      </div>
+                                      <div className="truncate text-slate-400" title={output.qiniu_key || ""}>key：{output.qiniu_key || "-"}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {!outputs.length ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 bg-white px-2 py-3 text-[11px] text-slate-500">暂无 worker 产物</div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-700">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">系统评分</div>
+                            <div className="space-y-2">
+                              {evaluations.map((item) => (
+                                <div key={`chain-eval-${chain.chain_key}-${item.id}`} className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] text-slate-600">
+                                  <div className="font-medium text-slate-800">
+                                    eval #{item.id} · output {item.output_id || "-"}
+                                  </div>
+                                  <div className="mt-1">overall {formatScore(item.overall_score)} · clarity {formatScore(item.clarity_score)}</div>
+                                  <div>loop {formatScore(item.loop_score)} · motion {formatScore(item.motion_score)}</div>
+                                  <div>emotion {formatScore(item.emotion_score)} · efficiency {formatScore(item.efficiency_score)}</div>
+                                  <div className="text-slate-400">
+                                    窗口 {formatScore((item.window_start_ms || 0) / 1000)}s ~ {formatScore((item.window_end_ms || 0) / 1000)}s
+                                  </div>
+                                </div>
+                              ))}
+                              {!evaluations.length ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 bg-white px-2 py-3 text-[11px] text-slate-500">暂无评分</div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-700">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">AI3 复审</div>
+                            <div className="space-y-2">
+                              {reviews.map((item) => (
+                                <div key={`chain-review-${chain.chain_key}-${item.id}`} className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] text-slate-600">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className={`rounded-full border px-2 py-0.5 ${reviewStatusTone(item.final_recommendation)}`}>
+                                      {reviewStatusLabel(item.final_recommendation)}
+                                    </span>
+                                    <span>review #{item.id}</span>
+                                    <span>output {item.output_id || "-"}</span>
+                                  </div>
+                                  <div className="mt-1">semantic {formatScore(item.semantic_verdict)}</div>
+                                  <div className="mt-1 leading-5 text-slate-600">{item.diagnostic_reason || "无诊断说明"}</div>
+                                  <div className="mt-1 text-slate-400">action：{item.suggested_action || "-"}</div>
+                                </div>
+                              ))}
+                              {!reviews.length ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 bg-white px-2 py-3 text-[11px] text-slate-500">暂无 AI3 复审</div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-xs text-slate-700">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">用户反馈</div>
+                            <div className="text-[11px] text-slate-500">
+                              feedback {chain.summary?.feedback_count || 0}
+                            </div>
+                          </div>
+                          <div className="mb-3 flex flex-wrap gap-2">
+                            {feedbackActionCounts.map(([action, count]) => (
+                              <span
+                                key={`feedback-chip-${chain.chain_key}-${action}`}
+                                className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600"
+                              >
+                                {action} · {count}
+                              </span>
+                            ))}
+                            {!feedbackActionCounts.length ? (
+                              <span className="rounded-full border border-dashed border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-400">
+                                暂无反馈动作
+                              </span>
+                            ) : null}
+                          </div>
+                          {feedbacks.length ? (
+                            <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white">
+                              <table className="w-full text-left text-[11px]">
+                                <thead className="bg-slate-50 text-slate-500">
+                                  <tr>
+                                    <th className="px-2 py-2">时间</th>
+                                    <th className="px-2 py-2">动作</th>
+                                    <th className="px-2 py-2">用户</th>
+                                    <th className="px-2 py-2">output</th>
+                                    <th className="px-2 py-2">权重/场景</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-slate-600">
+                                  {feedbacks.map((item) => (
+                                    <tr key={`feedback-row-${chain.chain_key}-${item.id}`}>
+                                      <td className="px-2 py-2 whitespace-nowrap">{formatTime(item.created_at)}</td>
+                                      <td className="px-2 py-2">{item.action || "-"}</td>
+                                      <td className="px-2 py-2">{item.user_id || "-"}</td>
+                                      <td className="px-2 py-2">{item.output_id || "-"}</td>
+                                      <td className="px-2 py-2">
+                                        {formatScore(item.weight)}
+                                        <div className="text-[10px] text-slate-400">{item.scene_tag || "-"}</div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-xs text-slate-700">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">人工介入 / 重渲染</div>
+                            <div className="text-[11px] text-slate-500">
+                              rerender {chain.summary?.rerender_count || 0}
+                            </div>
+                          </div>
+                          {rerenders.length ? (
+                            <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white">
+                              <table className="w-full text-left text-[11px]">
+                                <thead className="bg-slate-50 text-slate-500">
+                                  <tr>
+                                    <th className="px-2 py-2">时间</th>
+                                    <th className="px-2 py-2">建议</th>
+                                    <th className="px-2 py-2">触发方式</th>
+                                    <th className="px-2 py-2">操作者</th>
+                                    <th className="px-2 py-2">说明</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-slate-600">
+                                  {rerenders.map((item) => (
+                                    <tr key={`rerender-row-${chain.chain_key}-${item.review_id}`}>
+                                      <td className="px-2 py-2 whitespace-nowrap">{formatTime(item.created_at)}</td>
+                                      <td className="px-2 py-2">{item.recommendation || "-"}</td>
+                                      <td className="px-2 py-2">{item.trigger || "-"}</td>
+                                      <td className="px-2 py-2">
+                                        {item.actor_role || "-"}
+                                        <div className="text-[10px] text-slate-400">actor {item.actor_id || "-"}</div>
+                                      </td>
+                                      <td className="px-2 py-2">
+                                        <div>{item.suggested_action || "-"}</div>
+                                        <div className="text-[10px] text-slate-400">{item.diagnostic || "-"}</div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-white px-2 py-3 text-[11px] text-slate-500">
+                              暂无人工介入或重渲染记录
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {!detailProposalChains.length ? (
+                    <div className="rounded-xl border border-violet-100 bg-white px-3 py-8 text-center text-xs text-slate-400">
+                      暂无 proposal-first 链路数据
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-violet-100 bg-white px-3 py-2 text-xs text-slate-500">该板块已收起</div>
+            )}
+          </section>
+
           <section id="stage-scoring" className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-emerald-800">系统评分（Scoring）</div>
+              <div className="text-sm font-semibold text-emerald-800">原始表：系统评分（Scoring）</div>
               <button
                 type="button"
                 className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
@@ -1782,7 +2797,7 @@ export default function AdminHighlightJobDetailPage() {
 
           <section id="stage-ai3" className="rounded-2xl border border-amber-100 bg-amber-50/30 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-amber-800">AI3（Judge）</div>
+              <div className="text-sm font-semibold text-amber-800">原始表：AI3（Judge）</div>
               <button
                 type="button"
                 className="rounded-lg border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-50"
@@ -1799,15 +2814,18 @@ export default function AdminHighlightJobDetailPage() {
                   <div className="rounded-xl border border-amber-100 bg-white px-2 py-1.5">耗时：{formatDurationMs(ai3Usage.durationMs)} · 成本 {formatCurrency(ai3Usage.costUSD, "USD")}</div>
                 </div>
                 <div className="mb-2 rounded-xl border border-amber-100 bg-white p-2 text-xs text-slate-700">
-                  <div className="text-[11px] text-slate-500">AI3 输入（payload）</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] text-slate-500">AI3 输入（payload）</div>
+                    <button
+                      type="button"
+                      className="rounded-md border border-amber-200 bg-white px-2 py-1 text-[10px] font-medium text-amber-700 hover:bg-amber-50"
+                      onClick={() => void handleCopyJSON("ai3-payload", ai3InputForDisplay)}
+                    >
+                      {copiedKey === "ai3-payload" ? "已复制" : "复制原文"}
+                    </button>
+                  </div>
                   <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-600">
-                    {safeJSONStringify(
-                      ai3InputPayload || {
-                        job_id: detail?.job?.id || 0,
-                        sample_size: detailOutputs.length,
-                        note: "未命中 judge_input_payload_v1，使用页面重建摘要展示。",
-                      }
-                    )}
+                    {safeJSONStringify(ai3InputForDisplay)}
                   </pre>
                 </div>
                 <div className="max-h-72 overflow-auto rounded-xl border border-amber-100 bg-white">
@@ -1845,7 +2863,7 @@ export default function AdminHighlightJobDetailPage() {
 
           <section id="stage-output" className="rounded-2xl border border-fuchsia-100 bg-fuchsia-50/30 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-fuchsia-800">GIF结果产出</div>
+              <div className="text-sm font-semibold text-fuchsia-800">原始表：GIF结果产出</div>
               <button
                 type="button"
                 className="rounded-lg border border-fuchsia-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-fuchsia-700 hover:bg-fuchsia-50"
@@ -1949,7 +2967,7 @@ export default function AdminHighlightJobDetailPage() {
 
           <section id="stage-events" className="rounded-2xl border border-slate-100 bg-white p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-600">阶段事件日志</div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-600">原始表：阶段事件日志</div>
               <button
                 type="button"
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
@@ -1988,6 +3006,11 @@ export default function AdminHighlightJobDetailPage() {
               </div>
             ) : (
               <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">该板块已收起</div>
+            )}
+          </section>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">原始数据附录已收起</div>
             )}
           </section>
         </>
