@@ -58,6 +58,14 @@ const buildTree = (categories: Category[]) => {
   return items;
 };
 
+const INPUT_CLASS =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const SELECT_CLASS = INPUT_CLASS;
+const PRIMARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white transition hover:bg-emerald-600";
+const SECONDARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50";
+
 export default function Page() {
   const [ips, setIps] = useState<IPItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -101,6 +109,23 @@ export default function Page() {
     if (formCover.startsWith("http")) return formCover;
     return coverUrlMap[formCover] || "";
   }, [formCover, coverUrlMap]);
+
+  const summary = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    let boundCollections = 0;
+    for (const item of ips) {
+      if ((item.status || "active") === "inactive") inactive += 1;
+      else active += 1;
+      boundCollections += Number(item.collection_count || 0);
+    }
+    return {
+      total: ips.length,
+      active,
+      inactive,
+      boundCollections,
+    };
+  }, [ips]);
 
   const normalizeError = (raw: string) => {
     const text = raw.trim();
@@ -507,7 +532,7 @@ export default function Page() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
-                className="w-56 rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs text-slate-600 outline-none focus:border-slate-300"
+                className="h-10 w-56 rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs text-slate-600 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 placeholder="搜索IP..."
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
@@ -517,7 +542,7 @@ export default function Page() {
               />
             </div>
             <button
-              className="group flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition-all hover:border-slate-300 hover:bg-slate-50"
+              className={`${SECONDARY_BUTTON_CLASS} group`}
               onClick={() => loadIps(keyword)}
               disabled={loading}
             >
@@ -525,7 +550,7 @@ export default function Page() {
               {loading ? "加载中..." : "刷新"}
             </button>
             <button
-              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md active:scale-95"
+              className={`${PRIMARY_BUTTON_CLASS} shadow-sm active:scale-95`}
               onClick={openCreate}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -541,25 +566,44 @@ export default function Page() {
         </div>
       )}
 
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500">IP 总数</div>
+          <div className="mt-1 text-2xl font-black text-slate-900">{summary.total}</div>
+        </div>
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-emerald-700">启用中</div>
+          <div className="mt-1 text-2xl font-black text-emerald-700">{summary.active}</div>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-slate-600">停用</div>
+          <div className="mt-1 text-2xl font-black text-slate-700">{summary.inactive}</div>
+        </div>
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-indigo-700">已绑定合集总数</div>
+          <div className="mt-1 text-2xl font-black text-indigo-700">{summary.boundCollections}</div>
+        </div>
+      </div>
+
       <div className="rounded-3xl border border-slate-100 bg-white p-6">
         {loading ? (
           <div className="py-16 text-center text-sm text-slate-400">加载中...</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="text-xs uppercase text-slate-400">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-3 py-3">IP</th>
-                  <th className="px-3 py-3">分类</th>
-                  <th className="px-3 py-3">合集数</th>
-                  <th className="px-3 py-3">状态</th>
-                  <th className="px-3 py-3">排序</th>
-                  <th className="px-3 py-3">操作</th>
+                  <th className="px-3 py-3 font-semibold">IP</th>
+                  <th className="px-3 py-3 font-semibold">分类</th>
+                  <th className="px-3 py-3 font-semibold">合集数</th>
+                  <th className="px-3 py-3 font-semibold">状态</th>
+                  <th className="px-3 py-3 font-semibold">排序</th>
+                  <th className="px-3 py-3 font-semibold">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {ips.map((item) => (
-                  <tr key={item.id} className="text-slate-700">
+                  <tr key={item.id} className="text-slate-700 transition-colors hover:bg-slate-50/70">
                     <td className="px-3 py-4">
                       <div className="flex items-center gap-3">
                         <div className="h-12 w-12 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
@@ -582,10 +626,12 @@ export default function Page() {
                     </td>
                     <td className="px-3 py-4 text-xs text-slate-500">{item.collection_count ?? 0}</td>
                     <td className="px-3 py-4 text-xs">
-                      <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                        item.status === "inactive" ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-600"
+                      <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                        item.status === "inactive"
+                          ? "border-slate-200 bg-slate-100 text-slate-600"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
                       }`}>
-                        {item.status || "active"}
+                        {item.status === "inactive" ? "停用" : "启用"}
                       </span>
                     </td>
                     <td className="px-3 py-4 text-xs text-slate-500">{item.sort ?? 0}</td>
@@ -631,14 +677,14 @@ export default function Page() {
         <div className="mt-4 space-y-4">
           <FormItem label="IP名称" required>
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={INPUT_CLASS}
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
             />
           </FormItem>
           <FormItem label="Slug">
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={INPUT_CLASS}
               value={formSlug}
               onChange={(e) => setFormSlug(e.target.value)}
               placeholder="可留空自动生成"
@@ -646,7 +692,7 @@ export default function Page() {
           </FormItem>
           <FormItem label="形象图 URL">
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={INPUT_CLASS}
               value={formCover}
               onChange={(e) => setFormCover(e.target.value)}
               placeholder="https://..."
@@ -662,7 +708,7 @@ export default function Page() {
           </FormItem>
           <FormItem label="所属分类">
             <select
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={SELECT_CLASS}
               value={formCategoryId}
               onChange={(e) => setFormCategoryId(Number(e.target.value))}
             >
@@ -677,7 +723,7 @@ export default function Page() {
           </FormItem>
           <FormItem label="简介">
             <textarea
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={`${INPUT_CLASS} h-24 py-2`}
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
             />
@@ -686,14 +732,14 @@ export default function Page() {
             <FormItem label="排序">
               <input
                 type="number"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+                className={INPUT_CLASS}
                 value={formSort}
                 onChange={(e) => setFormSort(Number(e.target.value))}
               />
             </FormItem>
             <FormItem label="状态">
               <select
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+                className={SELECT_CLASS}
                 value={formStatus}
                 onChange={(e) => setFormStatus(e.target.value)}
               >
@@ -705,13 +751,13 @@ export default function Page() {
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
           <button
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+            className={PRIMARY_BUTTON_CLASS}
             onClick={handleCreate}
           >
             创建
           </button>
           <button
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs text-slate-600 hover:border-slate-300"
+            className={SECONDARY_BUTTON_CLASS}
             onClick={() => setCreateOpen(false)}
           >
             取消
@@ -728,21 +774,21 @@ export default function Page() {
         <div className="mt-4 space-y-4">
           <FormItem label="IP名称" required>
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={INPUT_CLASS}
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
             />
           </FormItem>
           <FormItem label="Slug">
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={INPUT_CLASS}
               value={formSlug}
               onChange={(e) => setFormSlug(e.target.value)}
             />
           </FormItem>
           <FormItem label="形象图 URL">
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={INPUT_CLASS}
               value={formCover}
               onChange={(e) => setFormCover(e.target.value)}
             />
@@ -757,7 +803,7 @@ export default function Page() {
           </FormItem>
           <FormItem label="所属分类">
             <select
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={SELECT_CLASS}
               value={formCategoryId}
               onChange={(e) => setFormCategoryId(Number(e.target.value))}
             >
@@ -772,7 +818,7 @@ export default function Page() {
           </FormItem>
           <FormItem label="简介">
             <textarea
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+              className={`${INPUT_CLASS} h-24 py-2`}
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
             />
@@ -781,14 +827,14 @@ export default function Page() {
             <FormItem label="排序">
               <input
                 type="number"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+                className={INPUT_CLASS}
                 value={formSort}
                 onChange={(e) => setFormSort(Number(e.target.value))}
               />
             </FormItem>
             <FormItem label="状态">
               <select
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
+                className={SELECT_CLASS}
                 value={formStatus}
                 onChange={(e) => setFormStatus(e.target.value)}
               >
@@ -800,13 +846,13 @@ export default function Page() {
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
           <button
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+            className={PRIMARY_BUTTON_CLASS}
             onClick={handleUpdate}
           >
             保存
           </button>
           <button
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs text-slate-600 hover:border-slate-300"
+            className={SECONDARY_BUTTON_CLASS}
             onClick={() => setEditOpen(false)}
           >
             取消
@@ -830,11 +876,11 @@ function Modal({
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]">
+      <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
           <div className="text-sm font-bold text-slate-800">{title}</div>
-          <button className="text-xs text-slate-400 hover:text-slate-600" onClick={onClose}>
+          <button className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700" onClick={onClose}>
             关闭
           </button>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 
@@ -95,6 +95,14 @@ const SOURCE_READ_REASON_LABELS: Record<string, string> = {
   video_storage_unavailable: "视频存储不可用",
   video_probe_failed: "预探测失败",
 };
+
+const INPUT_CLASS =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const SELECT_CLASS = INPUT_CLASS;
+const PRIMARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-emerald-600";
+const SECONDARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50";
 
 function formatTime(value?: string) {
   if (!value) return "-";
@@ -272,6 +280,53 @@ async function parseApiError(response: Response, fallback: string) {
   }
 }
 
+function statusBadgeClass(status?: string) {
+  switch ((status || "").toLowerCase()) {
+    case "done":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "running":
+    case "queued":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "failed":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "cancelled":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+}
+
+function KpiCard({
+  label,
+  value,
+  tone = "slate",
+  subText,
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: "slate" | "emerald" | "sky" | "rose" | "amber" | "violet" | "indigo" | "fuchsia" | "orange";
+  subText?: string;
+}) {
+  const toneClass = {
+    slate: "border-slate-100 bg-white text-slate-900",
+    emerald: "border-emerald-100 bg-emerald-50/60 text-emerald-700",
+    sky: "border-sky-100 bg-sky-50/60 text-sky-700",
+    rose: "border-rose-100 bg-rose-50/60 text-rose-700",
+    amber: "border-amber-100 bg-amber-50/60 text-amber-700",
+    violet: "border-violet-100 bg-violet-50/60 text-violet-700",
+    indigo: "border-indigo-100 bg-indigo-50/60 text-indigo-700",
+    fuchsia: "border-fuchsia-100 bg-fuchsia-50/60 text-fuchsia-700",
+    orange: "border-orange-100 bg-orange-50/60 text-orange-700",
+  }[tone];
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <div className="text-xs font-semibold opacity-90">{label}</div>
+      <div className="mt-1 text-2xl font-black leading-none">{value}</div>
+      {subText ? <div className="mt-1 text-[11px] opacity-90">{subText}</div> : null}
+    </div>
+  );
+}
+
 export default function AdminHighlightJobsPage() {
   const [items, setItems] = useState<AdminVideoJobItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -407,7 +462,7 @@ export default function AdminHighlightJobsPage() {
         description="一级页面：按视频任务展示列表。点击任务进入二级详情页查看 AI1/AI2/评分/AI3 全流程。"
         actions={
           <button
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:border-slate-300"
+            className={SECONDARY_BUTTON_CLASS}
             onClick={() => void loadList()}
             disabled={loading}
           >
@@ -416,127 +471,118 @@ export default function AdminHighlightJobsPage() {
         }
       />
 
-      <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+      <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="mb-3 text-xs font-semibold tracking-wide text-slate-500">筛选条件</div>
         <div className="grid gap-3 md:grid-cols-8">
-          <input
-            value={draftUserID}
-            onChange={(e) => setDraftUserID(e.target.value)}
-            placeholder="用户ID"
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          />
-          <select
-            value={draftStatus}
-            onChange={(e) => setDraftStatus(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          >
-            <option value="all">全部状态</option>
-            <option value="queued">queued</option>
-            <option value="running">running</option>
-            <option value="done">done</option>
-            <option value="failed">failed</option>
-            <option value="cancelled">cancelled</option>
-          </select>
-          <select
-            value={draftFormat}
-            onChange={(e) => setDraftFormat(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          >
-            {FORMAT_OPTIONS.map((item) => (
-              <option key={item} value={item}>
-                格式：{item}
-              </option>
-            ))}
-          </select>
-          <select
-            value={draftSourceReadReason}
-            onChange={(e) => setDraftSourceReadReason(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          >
-            {SOURCE_READ_REASON_OPTIONS.map((item) => (
-              <option key={item} value={item}>
-                可读性原因：{item}
-              </option>
-            ))}
-          </select>
-          <select
-            value={draftAuditSignal}
-            onChange={(e) => setDraftAuditSignal(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          >
-            {AUDIT_SIGNAL_OPTIONS.map((item) => (
-              <option key={item} value={item}>
-                审计信号：{auditSignalLabel(item)}
-              </option>
-            ))}
-          </select>
-          <input
-            value={draftQuery}
-            onChange={(e) => setDraftQuery(e.target.value)}
-            placeholder="任务标题 / source key"
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 md:col-span-2"
-          />
-          <button onClick={applyFilters} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
-            查询
-          </button>
+          <label className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-500">用户ID</span>
+            <input
+              value={draftUserID}
+              onChange={(e) => setDraftUserID(e.target.value)}
+              placeholder="如：1024"
+              className={INPUT_CLASS}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-500">任务状态</span>
+            <select
+              value={draftStatus}
+              onChange={(e) => setDraftStatus(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              <option value="all">全部状态</option>
+              <option value="queued">queued</option>
+              <option value="running">running</option>
+              <option value="done">done</option>
+              <option value="failed">failed</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-500">输出格式</span>
+            <select
+              value={draftFormat}
+              onChange={(e) => setDraftFormat(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              {FORMAT_OPTIONS.map((item) => (
+                <option key={item} value={item}>
+                  格式：{item}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-500">可读性原因</span>
+            <select
+              value={draftSourceReadReason}
+              onChange={(e) => setDraftSourceReadReason(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              {SOURCE_READ_REASON_OPTIONS.map((item) => (
+                <option key={item} value={item}>
+                  可读性原因：{item}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-500">审计信号</span>
+            <select
+              value={draftAuditSignal}
+              onChange={(e) => setDraftAuditSignal(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              {AUDIT_SIGNAL_OPTIONS.map((item) => (
+                <option key={item} value={item}>
+                  审计信号：{auditSignalLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1 md:col-span-2">
+            <span className="text-[11px] font-medium text-slate-500">关键词</span>
+            <input
+              value={draftQuery}
+              onChange={(e) => setDraftQuery(e.target.value)}
+              placeholder="任务标题 / source key"
+              className={INPUT_CLASS}
+            />
+          </label>
+          <div className="flex items-end">
+            <button onClick={applyFilters} className={`${PRIMARY_BUTTON_CLASS} w-full`}>
+              查询
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-10">
-        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-          <div className="text-xs font-semibold text-slate-500">任务总数（当前筛选）</div>
-          <div className="mt-1 text-2xl font-black text-slate-900">{total}</div>
-        </div>
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-emerald-700">处理中</div>
-          <div className="mt-1 text-2xl font-black text-emerald-700">{stats.running}</div>
-        </div>
-        <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-sky-700">已完成</div>
-          <div className="mt-1 text-2xl font-black text-sky-700">{stats.done}</div>
-        </div>
-        <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-rose-700">失败</div>
-          <div className="mt-1 text-2xl font-black text-rose-700">{stats.failed}</div>
-        </div>
-        <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-amber-700">可读性异常（当前页）</div>
-          <div className="mt-1 text-2xl font-black text-amber-700">{sourceReadStats.abnormal}</div>
-        </div>
-        <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-cyan-700">Top 可读性原因（当前页）</div>
-          <div className="mt-1 text-xs text-cyan-800">
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <KpiCard label="任务总数（当前筛选）" value={total} />
+        <KpiCard label="处理中" value={stats.running} tone="emerald" />
+        <KpiCard label="已完成" value={stats.done} tone="sky" />
+        <KpiCard label="失败" value={stats.failed} tone="rose" />
+        <KpiCard label="可读性异常（当前页）" value={sourceReadStats.abnormal} tone="amber" />
+        <KpiCard
+          label="Top 可读性原因（当前页）"
+          value={<span className="text-sm leading-snug">
             {sourceReadStats.top.length
               ? sourceReadStats.top.map((item) => `${sourceReadReasonLabel(item.reason)}(${item.count})`).join(" / ")
               : "-"}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-violet-700">Proposal（当前页）</div>
-          <div className="mt-1 text-2xl font-black text-violet-700">{stats.proposalCount}</div>
-        </div>
-        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-indigo-700">Deliver（当前页）</div>
-          <div className="mt-1 text-2xl font-black text-indigo-700">{stats.deliverCount}</div>
-        </div>
-        <div className="rounded-2xl border border-fuchsia-100 bg-fuchsia-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-fuchsia-700">反馈（当前页）</div>
-          <div className="mt-1 text-2xl font-black text-fuchsia-700">{stats.feedbackCount}</div>
-        </div>
-        <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-orange-700">Rerender（当前页）</div>
-          <div className="mt-1 text-2xl font-black text-orange-700">{stats.rerenderCount}</div>
-        </div>
-        <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-rose-700">异常任务（当前页）</div>
-          <div className="mt-1 text-2xl font-black text-rose-700">{pageAnomalyCount}</div>
-        </div>
-        <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-sky-700">AI成本（当前页）</div>
-          <div className="mt-1 text-sm font-black text-sky-700">
-            {formatCurrency(stats.aiCostCNY, "CNY")}
-          </div>
-          <div className="mt-1 text-[11px] text-sky-700">{formatCurrency(stats.aiCostUSD, "USD")}</div>
-        </div>
+          </span>}
+          tone="sky"
+        />
+        <KpiCard label="Proposal（当前页）" value={stats.proposalCount} tone="violet" />
+        <KpiCard label="Deliver（当前页）" value={stats.deliverCount} tone="indigo" />
+        <KpiCard label="反馈（当前页）" value={stats.feedbackCount} tone="fuchsia" />
+        <KpiCard label="Rerender（当前页）" value={stats.rerenderCount} tone="orange" />
+        <KpiCard label="异常任务（当前页）" value={pageAnomalyCount} tone="rose" />
+        <KpiCard
+          label="AI成本（当前页）"
+          value={<span className="text-lg">{formatCurrency(stats.aiCostCNY, "CNY")}</span>}
+          tone="sky"
+          subText={formatCurrency(stats.aiCostUSD, "USD")}
+        />
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
@@ -582,22 +628,22 @@ export default function AdminHighlightJobsPage() {
           <table className="w-full min-w-[1660px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3">任务</th>
-                <th className="px-4 py-3">用户</th>
-                <th className="px-4 py-3">格式</th>
-                <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">审计摘要</th>
-                <th className="px-4 py-3">异常信号</th>
-                <th className="px-4 py-3">AI成本</th>
-                <th className="px-4 py-3">创建时间</th>
-                <th className="px-4 py-3">操作</th>
+                <th className="px-4 py-3 font-semibold">任务</th>
+                <th className="px-4 py-3 font-semibold">用户</th>
+                <th className="px-4 py-3 font-semibold">格式</th>
+                <th className="px-4 py-3 font-semibold">状态</th>
+                <th className="px-4 py-3 font-semibold">审计摘要</th>
+                <th className="px-4 py-3 font-semibold">异常信号</th>
+                <th className="px-4 py-3 font-semibold">AI成本</th>
+                <th className="px-4 py-3 font-semibold">创建时间</th>
+                <th className="px-4 py-3 font-semibold">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {items.map((item) => {
                 const anomalySignals = buildJobAnomalySignals(item, aiCostHighThresholdCNY);
                 return (
-                <tr key={item.id}>
+                <tr key={item.id} className="transition-colors hover:bg-slate-50/60">
                   <td className="px-4 py-3 align-top">
                     <div className="font-semibold text-slate-900">#{item.id} {item.title || "未命名任务"}</div>
                     <div className="mt-1 max-w-[340px] truncate text-xs text-slate-400" title={item.source_video_key || ""}>
@@ -614,7 +660,7 @@ export default function AdminHighlightJobsPage() {
                   </td>
                   <td className="px-4 py-3 align-top text-xs text-slate-600">{resolveRequestedFormat(item)}</td>
                   <td className="px-4 py-3 align-top">
-                    <div className="inline-block rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                    <div className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(item.status)}`}>
                       {statusLabel(item.status)}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">{item.stage} · {item.progress || 0}%</div>
@@ -658,7 +704,7 @@ export default function AdminHighlightJobsPage() {
                   <td className="px-4 py-3 align-top text-xs text-slate-500">{formatTime(item.created_at)}</td>
                   <td className="px-4 py-3 align-top">
                     <Link
-                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                       href={`/admin/users/highlight-jobs/${item.id}`}
                     >
                       进入详情页
@@ -684,14 +730,14 @@ export default function AdminHighlightJobsPage() {
           <button
             disabled={page <= 1}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             上一页
           </button>
           <button
             disabled={page >= totalPages}
             onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             下一页
           </button>

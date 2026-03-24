@@ -982,6 +982,50 @@ const AI_STAGE_LABEL: Record<string, string> = {
   judge: "AI3 Judge",
 };
 
+const INPUT_CLASS =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const SELECT_CLASS = INPUT_CLASS;
+const PRIMARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60";
+const SECONDARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
+const TINT_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl border px-4 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
+const SMALL_INPUT_CYAN_CLASS =
+  "h-8 w-full rounded-lg border border-cyan-200 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100";
+const SMALL_INPUT_EMERALD_CLASS =
+  "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const SMALL_BTN_CYAN_CLASS =
+  "inline-flex h-8 items-center rounded-lg border border-cyan-200 bg-cyan-600 px-3 text-xs font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60";
+const SMALL_BTN_CYAN_LIGHT_CLASS =
+  "inline-flex h-8 items-center rounded-lg border border-cyan-200 bg-cyan-50 px-3 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60";
+const SMALL_BTN_EMERALD_CLASS =
+  "inline-flex h-8 items-center rounded-lg border border-emerald-200 bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60";
+const SMALL_CHIP_BUTTON_CLASS =
+  "inline-flex h-6 items-center rounded-full border border-slate-200 bg-white px-2 text-[11px] text-slate-600 transition hover:bg-slate-100";
+
+function quickFilterButtonClass(active: boolean, activeClass: string) {
+  return `inline-flex h-8 items-center rounded-lg px-3 text-xs font-semibold transition ${
+    active ? activeClass : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+  }`;
+}
+
+function jobStatusBadgeClass(status?: string) {
+  switch ((status || "").toLowerCase()) {
+    case "done":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "running":
+    case "queued":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "failed":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "cancelled":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+}
+
 type AIUsageStageSummary = {
   stage: string;
   label: string;
@@ -3743,32 +3787,32 @@ export default function AdminUserVideoJobsPage() {
           <div className="flex items-center gap-2">
             <Link
               href="/admin/users/gif-baselines"
-              className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-semibold text-violet-700 hover:border-violet-300"
+              className={`${TINT_BUTTON_CLASS} border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300 hover:bg-violet-100`}
             >
               样本基线页
             </Link>
             <Link
               href="/admin/users/feedback-integrity?format=all"
-              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 hover:border-emerald-300"
+              className={`${TINT_BUTTON_CLASS} border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100`}
             >
               反馈完整性页
             </Link>
             <button
-              className="rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-2 text-xs font-semibold text-fuchsia-700 hover:border-fuchsia-300"
+              className={`${TINT_BUTTON_CLASS} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 hover:border-fuchsia-300 hover:bg-fuchsia-100`}
               onClick={() => void exportSampleBaseline()}
               disabled={exportingSampleBaseline}
             >
               {exportingSampleBaseline ? "导出中..." : `导出样本基线(${overviewWindow})`}
             </button>
             <button
-              className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:border-rose-300"
+              className={`${TINT_BUTTON_CLASS} border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100`}
               onClick={() => void exportFeedbackReport()}
               disabled={exportingFeedbackReport}
             >
               {exportingFeedbackReport ? "导出中..." : `导出反馈报表(${overviewWindow})`}
             </button>
             <button
-              className="rounded-xl border border-pink-200 bg-pink-50 px-4 py-2 text-xs font-semibold text-pink-700 hover:border-pink-300"
+              className={`${TINT_BUTTON_CLASS} border-pink-200 bg-pink-50 text-pink-700 hover:border-pink-300 hover:bg-pink-100`}
               onClick={() => void exportFeedbackIntegrityReport()}
               disabled={exportingFeedbackIntegrityReport}
               title={`当前筛选：${feedbackFilterLabel}`}
@@ -3776,7 +3820,7 @@ export default function AdminUserVideoJobsPage() {
               {exportingFeedbackIntegrityReport ? "导出中..." : `导出反馈完整性(${overviewWindow})`}
             </button>
             <button
-              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 hover:border-emerald-300"
+              className={`${TINT_BUTTON_CLASS} border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100`}
               onClick={() => void exportFeedbackIntegrityTrendReport()}
               disabled={exportingFeedbackIntegrityTrendReport}
               title={`当前筛选：${feedbackFilterLabel}`}
@@ -3784,7 +3828,7 @@ export default function AdminUserVideoJobsPage() {
               {exportingFeedbackIntegrityTrendReport ? "导出中..." : `导出完整性趋势(${overviewWindow})`}
             </button>
             <button
-              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700 hover:border-amber-300"
+              className={`${TINT_BUTTON_CLASS} border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100`}
               onClick={() => void exportFeedbackIntegrityAnomalyReport()}
               disabled={exportingFeedbackIntegrityAnomalyReport}
               title={`当前筛选：${feedbackFilterLabel}`}
@@ -3792,7 +3836,7 @@ export default function AdminUserVideoJobsPage() {
               {exportingFeedbackIntegrityAnomalyReport ? "导出中..." : `导出完整性异常(${overviewWindow})`}
             </button>
             <button
-              className="rounded-xl border border-rose-300 bg-rose-100 px-4 py-2 text-xs font-semibold text-rose-800 hover:border-rose-400"
+              className={`${TINT_BUTTON_CLASS} border-rose-300 bg-rose-100 text-rose-800 hover:border-rose-400 hover:bg-rose-200`}
               onClick={() => void exportBlockedFeedbackReport()}
               disabled={exportingBlockedFeedbackReport}
               title={`当前筛选：${feedbackFilterLabel}`}
@@ -3800,7 +3844,7 @@ export default function AdminUserVideoJobsPage() {
               {exportingBlockedFeedbackReport ? "导出中..." : blockedExportLabel}
             </button>
             <button
-              className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs font-semibold text-cyan-700 hover:border-cyan-300"
+              className={`${TINT_BUTTON_CLASS} border-cyan-200 bg-cyan-50 text-cyan-700 hover:border-cyan-300 hover:bg-cyan-100`}
               onClick={() => void exportGIFSubStageAnomalyReport()}
               disabled={exportingGIFSubStageAnomalyReport}
               title={isGIFSubStageQuick(quick) ? `当前子阶段筛选：${activeQuickGIFSubStageLabel}` : "建议先切换到子阶段异常快捷筛选后导出"}
@@ -3808,7 +3852,7 @@ export default function AdminUserVideoJobsPage() {
               {exportingGIFSubStageAnomalyReport ? "导出中..." : gifSubStageExportLabel}
             </button>
             <button
-              className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-semibold text-violet-700 hover:border-violet-300"
+              className={`${TINT_BUTTON_CLASS} border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300 hover:bg-violet-100`}
               onClick={() => void exportSampleBaselineDiff()}
               disabled={exportingSampleBaselineDiff}
             >
@@ -3817,7 +3861,7 @@ export default function AdminUserVideoJobsPage() {
                 : `导出样本Diff(${sampleBaselineBaseWindow}→${overviewWindow})`}
             </button>
             <button
-              className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:border-slate-300"
+              className={SECONDARY_BUTTON_CLASS}
               onClick={() => {
                 void load();
                 void loadOverview();
@@ -3837,12 +3881,12 @@ export default function AdminUserVideoJobsPage() {
             value={draftUserID}
             onChange={(e) => setDraftUserID(e.target.value)}
             placeholder="用户ID"
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className={INPUT_CLASS}
           />
           <select
             value={draftStatus}
             onChange={(e) => setDraftStatus(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className={SELECT_CLASS}
           >
             <option value="all">全部状态</option>
             <option value="queued">queued</option>
@@ -3854,7 +3898,7 @@ export default function AdminUserVideoJobsPage() {
           <select
             value={draftFormatFilter}
             onChange={(e) => setDraftFormatFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className={SELECT_CLASS}
           >
             {FORMAT_FILTER_OPTIONS.map((item) => (
               <option key={item} value={item}>
@@ -3865,7 +3909,7 @@ export default function AdminUserVideoJobsPage() {
           <select
             value={draftAssetDomainFilter}
             onChange={(e) => setDraftAssetDomainFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className={SELECT_CLASS}
           >
             {ASSET_DOMAIN_FILTER_OPTIONS.map((item) => (
               <option key={item} value={item}>
@@ -3877,18 +3921,18 @@ export default function AdminUserVideoJobsPage() {
             value={draftGuardReason}
             onChange={(e) => setDraftGuardReason(e.target.value)}
             placeholder="负反馈原因(可选)"
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-rose-500"
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
           />
           <input
             value={draftQ}
             onChange={(e) => setDraftQ(e.target.value)}
             placeholder="任务标题 / source key"
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 md:col-span-2"
+            className={`${INPUT_CLASS} md:col-span-2`}
           />
           <select
             value={overviewWindow}
             onChange={(e) => setOverviewWindow(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className={SELECT_CLASS}
           >
             <option value="24h">概览窗口：24h</option>
             <option value="7d">概览窗口：7d</option>
@@ -3897,7 +3941,7 @@ export default function AdminUserVideoJobsPage() {
           <select
             value={sampleBaselineBaseWindow}
             onChange={(e) => setSampleBaselineBaseWindow(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-500"
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
           >
             <option value="24h">样本基线对照：24h</option>
             <option value="7d">样本基线对照：7d</option>
@@ -3905,7 +3949,7 @@ export default function AdminUserVideoJobsPage() {
           </select>
           <button
             onClick={() => void applyListFilters()}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            className={PRIMARY_BUTTON_CLASS}
           >
             查询
           </button>
@@ -4237,9 +4281,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("all");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "all" ? "bg-slate-900 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "all", "bg-slate-900 text-white")}
         >
           全部任务
         </button>
@@ -4248,9 +4290,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("retrying");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "retrying" ? "bg-amber-600 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "retrying", "bg-amber-600 text-white")}
         >
           重试中（{overview?.retrying ?? 0}）
         </button>
@@ -4259,9 +4299,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("failed_24h");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "failed_24h" ? "bg-rose-600 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "failed_24h", "bg-rose-600 text-white")}
         >
           24h 失败（{overview?.failed_24h ?? 0}）
         </button>
@@ -4270,11 +4308,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("sub_stage_anomaly");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "sub_stage_anomaly"
-              ? "bg-cyan-700 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "sub_stage_anomaly", "bg-cyan-700 text-white")}
         >
           子阶段异常（{gifSubStageAnomalyJobsWindow}）
         </button>
@@ -4283,11 +4317,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("sub_stage_briefing_anomaly");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "sub_stage_briefing_anomaly"
-              ? "bg-cyan-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "sub_stage_briefing_anomaly", "bg-cyan-600 text-white")}
         >
           Briefing异常（{gifSubStageAnomalyByStage.get("briefing")?.anomaly_jobs ?? 0}）
         </button>
@@ -4296,11 +4326,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("sub_stage_planning_anomaly");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "sub_stage_planning_anomaly"
-              ? "bg-cyan-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "sub_stage_planning_anomaly", "bg-cyan-600 text-white")}
         >
           Planning异常（{gifSubStageAnomalyByStage.get("planning")?.anomaly_jobs ?? 0}）
         </button>
@@ -4309,11 +4335,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("sub_stage_scoring_anomaly");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "sub_stage_scoring_anomaly"
-              ? "bg-cyan-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "sub_stage_scoring_anomaly", "bg-cyan-600 text-white")}
         >
           Scoring异常（{gifSubStageAnomalyByStage.get("scoring")?.anomaly_jobs ?? 0}）
         </button>
@@ -4322,11 +4344,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("sub_stage_reviewing_anomaly");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "sub_stage_reviewing_anomaly"
-              ? "bg-cyan-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "sub_stage_reviewing_anomaly", "bg-cyan-600 text-white")}
         >
           Reviewing异常（{gifSubStageAnomalyByStage.get("reviewing")?.anomaly_jobs ?? 0}）
         </button>
@@ -4335,11 +4353,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("feedback_anomaly");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "feedback_anomaly"
-              ? "bg-rose-700 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "feedback_anomaly", "bg-rose-700 text-white")}
         >
           反馈异常（{feedbackAnomalyJobsWindow}）
         </button>
@@ -4348,11 +4362,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("top_pick_conflict");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "top_pick_conflict"
-              ? "bg-amber-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "top_pick_conflict", "bg-amber-600 text-white")}
         >
           top_pick冲突（{feedbackTopPickConflictJobsWindow}）
         </button>
@@ -4361,11 +4371,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("guard_hit");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "guard_hit"
-              ? "bg-rose-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "guard_hit", "bg-rose-600 text-white")}
         >
           负反馈命中（{feedbackNegativeGuardOverview?.guard_reason_hit_jobs ?? 0}）
         </button>
@@ -4374,11 +4380,7 @@ export default function AdminUserVideoJobsPage() {
             setQuick("guard_blocked");
             setPage(1);
           }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            quick === "guard_blocked"
-              ? "bg-rose-700 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+          className={quickFilterButtonClass(quick === "guard_blocked", "bg-rose-700 text-white")}
         >
           原因阻断（{feedbackNegativeGuardOverview?.blocked_reason_jobs ?? 0}）
         </button>
@@ -4389,7 +4391,7 @@ export default function AdminUserVideoJobsPage() {
               setDraftGuardReason("");
               setPage(1);
             }}
-            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:border-rose-300"
+            className="inline-flex h-8 items-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
           >
             清除原因：{guardReason.trim()}
           </button>
@@ -4398,7 +4400,7 @@ export default function AdminUserVideoJobsPage() {
           <button
             onClick={() => void exportBlockedFeedbackReport()}
             disabled={exportingBlockedFeedbackReport}
-            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 items-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
             title={`当前筛选：${feedbackFilterLabel}`}
           >
             {exportingBlockedFeedbackReport ? "导出中..." : "导出当前筛选阻断名单"}
@@ -4408,25 +4410,21 @@ export default function AdminUserVideoJobsPage() {
           <button
             onClick={() => void exportGIFSubStageAnomalyReport()}
             disabled={exportingGIFSubStageAnomalyReport}
-            className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 items-center rounded-lg border border-cyan-200 bg-cyan-50 px-3 text-xs font-semibold text-cyan-700 transition hover:border-cyan-300 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
             title={`当前子阶段筛选：${activeQuickGIFSubStageLabel}`}
           >
             {exportingGIFSubStageAnomalyReport ? "导出中..." : `导出当前子阶段异常(${activeQuickGIFSubStageLabel})`}
           </button>
         ) : null}
         <button
-          onClick={() => {
-            setSampleFilter((prev) => (prev === "sample" ? "all" : "sample"));
-            setPage(1);
-          }}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            sampleFilter === "sample"
-              ? "bg-fuchsia-600 text-white"
-              : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
-        >
-          样本合集任务（{overview?.sample_jobs_window ?? 0}）
-        </button>
+            onClick={() => {
+              setSampleFilter((prev) => (prev === "sample" ? "all" : "sample"));
+              setPage(1);
+            }}
+            className={quickFilterButtonClass(sampleFilter === "sample", "bg-fuchsia-600 text-white")}
+          >
+            样本合集任务（{overview?.sample_jobs_window ?? 0}）
+          </button>
       </div>
 
       {stageSummary.length ? (
@@ -4902,12 +4900,12 @@ export default function AdminUserVideoJobsPage() {
           <table className="w-full min-w-[1200px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3">任务</th>
-                <th className="px-4 py-3">用户</th>
-                <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">结果合集</th>
-                <th className="px-4 py-3">创建时间</th>
-                <th className="px-4 py-3">操作</th>
+                <th className="px-4 py-3 font-semibold">任务</th>
+                <th className="px-4 py-3 font-semibold">用户</th>
+                <th className="px-4 py-3 font-semibold">状态</th>
+                <th className="px-4 py-3 font-semibold">结果合集</th>
+                <th className="px-4 py-3 font-semibold">创建时间</th>
+                <th className="px-4 py-3 font-semibold">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -4920,7 +4918,7 @@ export default function AdminUserVideoJobsPage() {
                 const itemAssetDomain = normalizeAssetDomain(item.asset_domain);
                 const itemAssetDomainLabel = ASSET_DOMAIN_LABEL[itemAssetDomain] || itemAssetDomain;
                 return (
-                <tr key={item.id}>
+                <tr key={item.id} className="transition-colors hover:bg-slate-50/70">
                   <td className="px-4 py-3 align-top">
                     <div className="font-semibold text-slate-800">#{item.id} {item.title || "未命名"}</div>
                     <div className="mt-1 max-w-[340px] truncate text-xs text-slate-400" title={item.source_video_key}>
@@ -4958,7 +4956,7 @@ export default function AdminUserVideoJobsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top">
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${jobStatusBadgeClass(item.status)}`}>
                       {STATUS_LABEL[item.status] || item.status}
                     </span>
                     <div className="mt-1 text-xs text-slate-500">{item.stage} · {item.progress || 0}%</div>
@@ -5011,7 +5009,7 @@ export default function AdminUserVideoJobsPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <button
-                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                       onClick={() => void loadDetail(item.id)}
                     >
                       查看详情
@@ -5039,14 +5037,14 @@ export default function AdminUserVideoJobsPage() {
           <button
             disabled={page <= 1}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             上一页
           </button>
           <button
             disabled={page >= totalPages}
             onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             下一页
           </button>
@@ -5054,12 +5052,18 @@ export default function AdminUserVideoJobsPage() {
       </div>
 
       <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-3 text-sm font-bold text-slate-800">任务详情</div>
-        {detailJobID ? <div className="mb-2 text-xs text-slate-400">当前选中任务：#{detailJobID}</div> : null}
-        {detailLoading ? <div className="text-sm text-slate-400">加载中...</div> : null}
-        {detailError ? <div className="text-sm text-rose-500">{detailError}</div> : null}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-bold text-slate-800">任务详情</div>
+          {detailJobID ? (
+            <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+              当前选中任务：#{detailJobID}
+            </div>
+          ) : null}
+        </div>
+        {detailLoading ? <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500">加载中...</div> : null}
+        {detailError ? <div className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-600">{detailError}</div> : null}
         {!detailLoading && !detailError && !detail ? (
-          <div className="text-sm text-slate-400">请选择任务查看事件与产物。</div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500">请选择任务查看事件与产物。</div>
         ) : null}
 
         {detail ? (
@@ -5232,13 +5236,13 @@ export default function AdminUserVideoJobsPage() {
                       value={rerenderProposalIDInput}
                       onChange={(e) => setRerenderProposalIDInput(e.target.value)}
                       placeholder="proposal_id（优先）"
-                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                      className={SMALL_INPUT_CYAN_CLASS}
                     />
                     <input
                       value={rerenderProposalRankInput}
                       onChange={(e) => setRerenderProposalRankInput(e.target.value)}
                       placeholder="proposal_rank（兜底）"
-                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                      className={SMALL_INPUT_CYAN_CLASS}
                     />
                     <button
                       type="button"
@@ -5246,7 +5250,7 @@ export default function AdminUserVideoJobsPage() {
                       onClick={() => {
                         void triggerGIFRerender();
                       }}
-                      className="rounded-lg border border-cyan-200 bg-cyan-600 px-3 py-1 text-xs text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={SMALL_BTN_CYAN_CLASS}
                     >
                       {detailSourceVideoDeleted ? "源视频已清理" : rerenderSubmitting ? "补渲染中..." : "按需补渲染 GIF"}
                     </button>
@@ -5265,20 +5269,20 @@ export default function AdminUserVideoJobsPage() {
                       value={batchRerenderProposalIDsInput}
                       onChange={(e) => setBatchRerenderProposalIDsInput(e.target.value)}
                       placeholder="proposal_ids（逗号分隔）"
-                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                      className={SMALL_INPUT_CYAN_CLASS}
                     />
                     <input
                       value={batchRerenderProposalRanksInput}
                       onChange={(e) => setBatchRerenderProposalRanksInput(e.target.value)}
                       placeholder="proposal_ranks（逗号分隔）"
-                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs outline-none focus:border-cyan-400"
+                      className={SMALL_INPUT_CYAN_CLASS}
                     />
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <select
                       value={batchRerenderStrategy}
                       onChange={(event) => setBatchRerenderStrategy(event.target.value)}
-                      className="rounded-lg border border-cyan-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-cyan-400"
+                      className={SMALL_INPUT_CYAN_CLASS}
                     >
                       <option value="default">default</option>
                       <option value="loop_first">loop_first</option>
@@ -5301,7 +5305,7 @@ export default function AdminUserVideoJobsPage() {
                         const proposalIDs = detailPendingGIFProposals.map((item) => Number(item.id || 0)).filter((id) => id > 0);
                         setBatchRerenderProposalIDsInput(proposalIDs.join(","));
                       }}
-                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={SMALL_BTN_CYAN_LIGHT_CLASS}
                     >
                       填充待补渲染
                     </button>
@@ -5311,7 +5315,7 @@ export default function AdminUserVideoJobsPage() {
                       onClick={() => {
                         void triggerGIFBatchRerender();
                       }}
-                      className="rounded-lg border border-cyan-200 bg-cyan-600 px-3 py-1 text-xs text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={SMALL_BTN_CYAN_CLASS}
                     >
                       {detailSourceVideoDeleted ? "源视频已清理" : batchRerenderSubmitting ? "批量补渲染中..." : "批量补渲染"}
                     </button>
@@ -5581,7 +5585,7 @@ export default function AdminUserVideoJobsPage() {
                   <div className="text-xs font-semibold uppercase tracking-wider text-slate-600">
                     反馈重排下钻（highlight_feedback_v1）
                   </div>
-                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                  <span className="inline-flex h-6 items-center rounded-full border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700">
                     group: {detailHighlightFeedback.group || "unknown"}
                   </span>
                   <span
@@ -5659,7 +5663,7 @@ export default function AdminUserVideoJobsPage() {
                         (event.target.value as (typeof REVIEW_STATUS_FILTER_OPTIONS)[number]) || "all"
                       )
                     }
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-emerald-500"
+                    className={SMALL_INPUT_EMERALD_CLASS}
                   >
                     {REVIEW_STATUS_FILTER_OPTIONS.map((item) => (
                       <option key={`detail-review-filter-${item}`} value={item}>
@@ -5692,13 +5696,13 @@ export default function AdminUserVideoJobsPage() {
                     value={manualDecisionOutputIDInput}
                     onChange={(event) => setManualDecisionOutputIDInput(event.target.value)}
                     placeholder="output_id"
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                    className={SMALL_INPUT_EMERALD_CLASS}
                   />
                   <input
                     value={manualDecisionProposalIDInput}
                     onChange={(event) => setManualDecisionProposalIDInput(event.target.value)}
                     placeholder="proposal_id（可选）"
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                    className={SMALL_INPUT_EMERALD_CLASS}
                   />
                   <select
                     value={manualDecisionStatus}
@@ -5707,7 +5711,7 @@ export default function AdminUserVideoJobsPage() {
                         (event.target.value as (typeof REVIEW_STATUS_FILTER_OPTIONS)[number]) || "deliver"
                       )
                     }
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-emerald-500"
+                    className={SMALL_INPUT_EMERALD_CLASS}
                   >
                     <option value="deliver">deliver</option>
                     <option value="keep_internal">keep_internal</option>
@@ -5720,13 +5724,13 @@ export default function AdminUserVideoJobsPage() {
                     value={manualDecisionReason}
                     onChange={(event) => setManualDecisionReason(event.target.value)}
                     placeholder="reason（可选）"
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                    className={SMALL_INPUT_EMERALD_CLASS}
                   />
                   <input
                     value={manualDecisionNotes}
                     onChange={(event) => setManualDecisionNotes(event.target.value)}
                     placeholder="notes（可选）"
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                    className={SMALL_INPUT_EMERALD_CLASS}
                   />
                   <button
                     type="button"
@@ -5734,7 +5738,7 @@ export default function AdminUserVideoJobsPage() {
                     onClick={() => {
                       void submitManualGIFReviewDecision();
                     }}
-                    className="rounded-lg border border-emerald-200 bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={SMALL_BTN_EMERALD_CLASS}
                   >
                     {manualDecisionSubmitting ? "提交中..." : "提交人工决策"}
                   </button>
@@ -5751,7 +5755,7 @@ export default function AdminUserVideoJobsPage() {
                             setManualDecisionProposalIDInput(String(item.proposal_id));
                           }
                         }}
-                        className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                        className={SMALL_CHIP_BUTTON_CLASS}
                         title={item.qiniu_key}
                       >
                         output #{item.id}{item.proposal_id ? ` / proposal #${item.proposal_id}` : ""}
@@ -5776,7 +5780,7 @@ export default function AdminUserVideoJobsPage() {
                           ["output_id,proposal_id,decision,reason,notes", ...lines].join("\n")
                         );
                       }}
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       用当前产物填充模板
                     </button>
@@ -5787,7 +5791,7 @@ export default function AdminUserVideoJobsPage() {
                     placeholder={
                       "支持 CSV/TSV，每行一个决策：\noutput_id,proposal_id,decision,reason,notes\n123,88,deliver,manual_keep,ok"
                     }
-                    className="h-24 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                    className="h-24 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   />
                   <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                     <div>
@@ -5802,7 +5806,7 @@ export default function AdminUserVideoJobsPage() {
                       onClick={() => {
                         void submitBatchManualGIFReviewDecisions();
                       }}
-                      className="rounded-lg border border-emerald-200 bg-emerald-600 px-3 py-1 text-[11px] text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={SMALL_BTN_EMERALD_CLASS}
                     >
                       {manualDecisionBatchSubmitting ? "批量提交中..." : "提交批量人工决策"}
                     </button>

@@ -79,6 +79,7 @@ const NAV = [
     items: [
       { label: "基础设置", href: "/admin/settings/general" },
       { label: "存储与 CDN", href: "/admin/settings/storage" },
+      { label: "数据审计健康", href: "/admin/settings/data-audit" },
       { label: "日志审计", href: "/admin/settings/logs" },
     ],
   },
@@ -137,13 +138,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="admin-theme flex h-screen overflow-hidden bg-slate-50 text-slate-900">
+    <div className="admin-theme relative flex h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#dcfce7_0%,#f8fafc_26%,#f1f5f9_100%)] text-slate-900">
       {/* Sidebar */}
-      <aside className="hidden w-72 flex-col border-r border-slate-200 bg-white lg:flex">
+      <aside className="hidden w-80 flex-col border-r border-slate-200/70 bg-white/90 shadow-[0_20px_40px_-30px_rgba(2,6,23,0.35)] backdrop-blur-xl lg:flex">
         <div className="flex shrink-0 flex-col gap-8 px-6 py-8">
           <div>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-lg shadow-lg shadow-emerald-200">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-lg shadow-lg shadow-emerald-200">
                 <span className="filter grayscale brightness-200 contrast-200">🗂️</span>
               </div>
               <div>
@@ -168,7 +169,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   onClick={() => toggleGroup(group.title)}
                   className={`group mb-2 flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors ${
                     groupActive
-                      ? "bg-emerald-50/70 text-emerald-700"
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
                       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
@@ -188,7 +189,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                       <button
                         key={item.href}
                         onClick={() => router.push(item.href)}
-                        className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 ${
+                        className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-200 ${
                           active
                             ? "bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-100"
                             : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -217,8 +218,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="shrink-0 border-t border-slate-100 p-6">
-          <div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200/60">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700">
+          <div className="flex items-center gap-3 rounded-2xl bg-slate-50/90 p-4 ring-1 ring-slate-200/70">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 font-bold text-emerald-700">
               {profile.name?.[0]?.toUpperCase() || "A"}
             </div>
             <div className="flex-1 overflow-hidden">
@@ -234,7 +235,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 clearTokens();
                 router.push("/admin/login");
               }}
-              className="text-slate-400 hover:text-red-500 transition-colors"
+              className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
               title="退出登录"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -245,7 +246,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="sticky top-0 z-10 shrink-0 border-b border-slate-200 bg-white/80 px-8 py-4 backdrop-blur-md">
+        <header className="sticky top-0 z-10 shrink-0 border-b border-slate-200/70 bg-white/80 px-8 py-4 backdrop-blur-xl">
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
@@ -264,7 +265,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </span>
                 <input
-                  className="w-64 rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 placeholder:text-slate-400"
+                  className="w-64 rounded-xl border border-slate-200/80 bg-white py-2 pl-10 pr-4 text-sm font-medium outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 placeholder:text-slate-400"
                   placeholder="在档案库中检索..."
                 />
               </div>
@@ -272,7 +273,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <div className="h-8 w-[1px] bg-slate-200 mx-2" />
 
               <button
-                className="flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-200 transition-all hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0"
+                className="flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-300 transition-all hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
                 onClick={() => window.location.reload()}
                 title="刷新页面"
               >
@@ -297,7 +298,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-y-auto p-8">
-          <div className="mx-auto max-w-7xl animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="mx-auto max-w-[1500px] animate-in fade-in slide-in-from-bottom-4 duration-700">
             {children}
           </div>
         </main>

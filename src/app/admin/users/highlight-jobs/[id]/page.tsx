@@ -258,6 +258,11 @@ type ApiErrorPayload = {
   message?: string;
 };
 
+const SECONDARY_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
+const TINT_BUTTON_CLASS =
+  "inline-flex h-10 items-center justify-center rounded-xl border px-4 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
+
 type SubStageRow = {
   key: string;
   label: string;
@@ -717,6 +722,34 @@ async function parseApiError(response: Response, fallback: string) {
     const text = await response.text();
     return text || fallback;
   }
+}
+
+function KpiCard({
+  label,
+  value,
+  tone = "slate",
+  subText,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "slate" | "sky" | "emerald" | "violet" | "amber" | "rose";
+  subText?: string;
+}) {
+  const toneClass = {
+    slate: "border-slate-100 bg-white text-slate-900",
+    sky: "border-sky-100 bg-sky-50/60 text-sky-700",
+    emerald: "border-emerald-100 bg-emerald-50/60 text-emerald-700",
+    violet: "border-violet-100 bg-violet-50/60 text-violet-700",
+    amber: "border-amber-100 bg-amber-50/60 text-amber-700",
+    rose: "border-rose-100 bg-rose-50/60 text-rose-700",
+  }[tone];
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <div className="text-xs font-semibold opacity-90">{label}</div>
+      <div className="mt-1 text-2xl font-black leading-none">{value}</div>
+      {subText ? <div className="mt-1 text-[11px] opacity-90">{subText}</div> : null}
+    </div>
+  );
 }
 
 export default function AdminHighlightJobDetailPage() {
@@ -1537,14 +1570,14 @@ export default function AdminHighlightJobDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <button
-              className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:border-slate-300"
+              className={SECONDARY_BUTTON_CLASS}
               onClick={() => void loadDetail()}
               disabled={loading || !jobID}
             >
               {loading ? "加载中..." : "刷新"}
             </button>
             <button
-              className="rounded-xl border border-sky-200 px-4 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className={`${TINT_BUTTON_CLASS} border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-300 hover:bg-sky-100`}
               onClick={handleExportAuditPackage}
               disabled={!detail || !jobID}
             >
@@ -1552,7 +1585,7 @@ export default function AdminHighlightJobDetailPage() {
             </button>
             <Link
               href="/admin/users/highlight-jobs"
-              className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className={SECONDARY_BUTTON_CLASS}
             >
               返回视频任务列表
             </Link>
@@ -1561,86 +1594,60 @@ export default function AdminHighlightJobDetailPage() {
       />
 
       {!jobID ? (
-        <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+        <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
           无效任务 ID
         </div>
       ) : null}
       {error ? (
-        <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
+        <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
       ) : null}
       {loading ? (
-        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-500">详情加载中...</div>
+        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">详情加载中...</div>
       ) : null}
 
       {detail ? (
         <>
-          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm text-sm text-slate-700">
-            <div>任务 #{detail.job.id} · {detail.job.title || "未命名"}</div>
-            <div className="mt-1">状态：{detail.job.status} / {detail.job.stage} / {detail.job.progress || 0}%</div>
-            <div className="mt-1">source key：{detail.job.source_video_key || "-"}</div>
-            <div className="mt-1">输入探针：{resolveSourceProbeSummary(detail.job.options)}</div>
-            <div className="mt-1">
-              源视频可读性：{sourceReadSuccess ? "ok" : sourceReadability.success !== undefined ? "failed" : "-"}
-              {sourceReadability.reason_code ? ` · ${String(sourceReadability.reason_code)}` : ""}
-              {sourceReadability.permanent !== undefined ? ` · permanent=${String(sourceReadPermanent)}` : ""}
+          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-slate-900">任务 #{detail.job.id} · {detail.job.title || "未命名"}</div>
+              <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                {detail.job.status} / {detail.job.stage} / {detail.job.progress || 0}%
+              </div>
             </div>
-            <div className="mt-1">
-              成本：{formatCurrency(detail.job.cost?.estimated_cost, detail.job.cost?.currency || "CNY")} · output_count {detail.job.cost?.output_count || 0}
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-6">
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">proposal</div>
-              <div className="text-2xl font-black text-slate-900">{summary.proposal_count || 0}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">output</div>
-              <div className="text-2xl font-black text-slate-900">{summary.output_count || 0}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">evaluation</div>
-              <div className="text-2xl font-black text-slate-900">{summary.evaluation_count || 0}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">review</div>
-              <div className="text-2xl font-black text-slate-900">{summary.review_count || 0}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">feedback</div>
-              <div className="text-2xl font-black text-slate-900">{summary.feedback_count || 0}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">hard gate blocked</div>
-              <div className="text-2xl font-black text-rose-600">{summary.hard_gate_blocked_count || 0}</div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-600 md:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                source key：{detail.job.source_video_key || "-"}
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                输入探针：{resolveSourceProbeSummary(detail.job.options)}
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                成本：{formatCurrency(detail.job.cost?.estimated_cost, detail.job.cost?.currency || "CNY")} · output_count {detail.job.cost?.output_count || 0}
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 md:col-span-2 xl:col-span-3">
+                源视频可读性：{sourceReadSuccess ? "ok" : sourceReadability.success !== undefined ? "failed" : "-"}
+                {sourceReadability.reason_code ? ` · ${String(sourceReadability.reason_code)}` : ""}
+                {sourceReadability.permanent !== undefined ? ` · permanent=${String(sourceReadPermanent)}` : ""}
+              </div>
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-6">
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">任务总耗时</div>
-              <div className="text-xl font-black text-slate-900">{formatDurationMs(mainDurationMs)}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">AI 总耗时</div>
-              <div className="text-xl font-black text-slate-900">{formatDurationMs(totalAIDurationMs)}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">AI 总成本（USD）</div>
-              <div className="text-xl font-black text-slate-900">{formatCurrency(totalAIStageCostUSD, "USD")}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">Worker 渲染耗时累计</div>
-              <div className="text-xl font-black text-slate-900">{formatDurationMs(workerRenderElapsedMs)}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">Worker 上传耗时累计</div>
-              <div className="text-xl font-black text-slate-900">{formatDurationMs(workerUploadElapsedMs)}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">Worker 产物数</div>
-              <div className="text-xl font-black text-slate-900">{workerRows.length}</div>
-            </div>
+            <KpiCard label="proposal" value={summary.proposal_count || 0} />
+            <KpiCard label="output" value={summary.output_count || 0} />
+            <KpiCard label="evaluation" value={summary.evaluation_count || 0} />
+            <KpiCard label="review" value={summary.review_count || 0} />
+            <KpiCard label="feedback" value={summary.feedback_count || 0} />
+            <KpiCard label="hard gate blocked" value={summary.hard_gate_blocked_count || 0} tone="rose" />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-6">
+            <KpiCard label="任务总耗时" value={formatDurationMs(mainDurationMs)} tone="sky" />
+            <KpiCard label="AI 总耗时" value={formatDurationMs(totalAIDurationMs)} tone="violet" />
+            <KpiCard label="AI 总成本（USD）" value={formatCurrency(totalAIStageCostUSD, "USD")} tone="amber" />
+            <KpiCard label="Worker 渲染耗时累计" value={formatDurationMs(workerRenderElapsedMs)} tone="emerald" />
+            <KpiCard label="Worker 上传耗时累计" value={formatDurationMs(workerUploadElapsedMs)} tone="emerald" />
+            <KpiCard label="Worker 产物数" value={workerRows.length} tone="slate" />
           </div>
 
           <section id="stage-overview" className="rounded-2xl border border-cyan-100 bg-cyan-50/30 p-4">

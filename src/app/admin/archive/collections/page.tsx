@@ -127,6 +127,10 @@ type CollectionIPAuditLogsResponse = {
   items: CollectionIPAuditLogItem[];
 };
 
+const FILTER_SELECT_CLASS =
+  "h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const TOOLBAR_CARD_CLASS = "flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5";
+
 export default function Page() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -844,7 +848,7 @@ export default function Page() {
         description="管理全站表情包合集，支持分类筛选、推荐置顶及批量操作。"
         actions={
           <button
-            className="group flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-slate-200 transition-all hover:bg-emerald-600 hover:shadow-emerald-100 active:scale-95 disabled:opacity-60"
+            className="group inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 disabled:opacity-60"
             onClick={() =>
               loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter)
             }
@@ -969,12 +973,12 @@ export default function Page() {
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+            <div className={TOOLBAR_CARD_CLASS}>
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
                 <Star size={14} /> 推荐筛选
               </div>
               <select
-                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className={FILTER_SELECT_CLASS}
                 value={featuredFilter}
                 onChange={(e) => {
                   setPage(1);
@@ -986,12 +990,12 @@ export default function Page() {
               </select>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+            <div className={TOOLBAR_CARD_CLASS}>
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
                 <TagIcon size={14} /> 样本筛选
               </div>
               <select
-                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className={FILTER_SELECT_CLASS}
                 value={sampleFilter}
                 onChange={(e) => {
                   setPage(1);
@@ -1003,12 +1007,12 @@ export default function Page() {
               </select>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+            <div className={TOOLBAR_CARD_CLASS}>
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
                 <User size={14} /> IP筛选
               </div>
               <select
-                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className={FILTER_SELECT_CLASS}
                 value={selectedIPFilter}
                 onChange={(e) => {
                   setPage(1);
@@ -1025,12 +1029,12 @@ export default function Page() {
               </select>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5">
+            <div className={TOOLBAR_CARD_CLASS}>
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
                 <List size={14} /> 每页
               </div>
               <select
-                className="h-9 rounded-xl border-none bg-white px-4 text-xs font-black text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className={FILTER_SELECT_CLASS}
                 value={pageSize}
                 onChange={(e) => {
                   setPage(1);
