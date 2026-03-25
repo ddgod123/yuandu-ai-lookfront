@@ -89,6 +89,9 @@ type VideoQualitySetting = {
   ai_director_duration_expand_ratio: number;
   ai_director_count_absolute_cap: number;
   ai_director_duration_absolute_cap_sec: number;
+  format_scope?: string;
+  resolved_from?: string[];
+  override_version?: string;
   updated_at?: string;
 };
 
@@ -152,6 +155,7 @@ type PromptTemplateStage = "ai1" | "ai2" | "scoring" | "ai3";
 type PromptTemplateLayer = "editable" | "fixed";
 type PromptTemplateTabKey = "ai1" | "ai2" | "scoring" | "ai3";
 type PromptTemplateFormat = "all" | "gif" | "webp" | "jpg" | "png" | "live";
+type QualityFormatScope = "all" | "gif" | "png" | "jpg" | "webp" | "live" | "mp4";
 
 type AdminVideoAIPromptTemplateItem = {
   id: number;
@@ -316,6 +320,16 @@ const TEMPLATE_FORMAT_OPTIONS: Array<{ value: PromptTemplateFormat; label: strin
   { value: "jpg", label: "JPG" },
   { value: "png", label: "PNG" },
   { value: "live", label: "Live" },
+];
+
+const QUALITY_FORMAT_OPTIONS: Array<{ value: QualityFormatScope; label: string }> = [
+  { value: "all", label: "全局（all）" },
+  { value: "gif", label: "GIF" },
+  { value: "png", label: "PNG" },
+  { value: "jpg", label: "JPG" },
+  { value: "webp", label: "WebP" },
+  { value: "live", label: "Live" },
+  { value: "mp4", label: "MP4" },
 ];
 
 const TEMPLATE_TAB_OPTIONS: Array<{ value: PromptTemplateTabKey; label: string; desc: string }> = [
@@ -558,6 +572,9 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [qualityFormat, setQualityFormat] = useState<QualityFormatScope>("all");
+  const [qualityResolvedFrom, setQualityResolvedFrom] = useState<string[]>([]);
+  const [qualityOverrideVersion, setQualityOverrideVersion] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
   const [rolloutEffects, setRolloutEffects] = useState<VideoQualityRolloutEffectCard[]>([]);
   const [rolloutEffectsLoading, setRolloutEffectsLoading] = useState(false);
@@ -890,8 +907,10 @@ export default function Page() {
       setError(null);
       setSuccess(null);
       try {
+        const qualityParams = new URLSearchParams();
+        qualityParams.set("format", qualityFormat);
         const [settingRes, effectsResult] = await Promise.all([
-          fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings`),
+          fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings?${qualityParams.toString()}`),
           fetchRolloutEffects(6),
         ]);
         if (!settingRes.ok) throw new Error(await parseApiError(settingRes, "加载失败"));
@@ -903,6 +922,8 @@ export default function Page() {
         setAi1ConstraintError(null);
         setAi1ConstraintSuccess(null);
         setUpdatedAt(data.updated_at || "");
+        setQualityResolvedFrom(Array.isArray(data.resolved_from) ? data.resolved_from.filter(Boolean) : []);
+        setQualityOverrideVersion((data.override_version || "").trim());
         setRolloutEffects(effectsResult.items);
         setRolloutEffectsFallbackUsed(effectsResult.fallbackUsed);
         setRolloutEffectsError(null);
@@ -914,13 +935,15 @@ export default function Page() {
         setAi1ConstraintJSON(formatAI1ConstraintVariableJSON(DEFAULT_FORM));
         setAi1ConstraintError(null);
         setAi1ConstraintSuccess(null);
+        setQualityResolvedFrom([]);
+        setQualityOverrideVersion("");
       } finally {
         setLoading(false);
         setRolloutEffectsLoading(false);
       }
     };
     void load();
-  }, []);
+  }, [qualityFormat]);
 
   useEffect(() => {
     void loadPromptTemplates(templateFormat);
@@ -959,7 +982,9 @@ export default function Page() {
       for (const key of dirtyKeys) {
         payload[key] = form[key];
       }
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings`, {
+      const params = new URLSearchParams();
+      params.set("format", qualityFormat);
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings?${params.toString()}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -973,7 +998,9 @@ export default function Page() {
       setAi1ConstraintError(null);
       setAi1ConstraintSuccess(null);
       setUpdatedAt(data.updated_at || "");
-      setSuccess(`已保存视频转图质量配置（${dirtyCount} 项变更）。`);
+      setQualityResolvedFrom(Array.isArray(data.resolved_from) ? data.resolved_from.filter(Boolean) : []);
+      setQualityOverrideVersion((data.override_version || "").trim());
+      setSuccess(`已保存视频转图质量配置（scope=${qualityFormat}，${dirtyCount} 项变更）。`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "保存失败";
       setError(message);
@@ -996,14 +1023,30 @@ export default function Page() {
         title="视频转图质量"
         description="配置帧质量过滤阈值与 GIF 输出参数，目标是“更清晰 + 更稳定 + 更有代表性”。"
         actions={
-          <button
-            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-            onClick={() => void save()}
-            disabled={saving || !baseForm}
-            title={!baseForm ? "配置未加载成功，禁止保存" : undefined}
-          >
-            {saving ? "保存中..." : dirtyCount > 0 ? `保存配置（${dirtyCount}）` : "保存配置"}
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-500">
+              <span className="sr-only">配置作用域</span>
+              <select
+                value={qualityFormat}
+                onChange={(e) => setQualityFormat(e.target.value as QualityFormatScope)}
+                className="min-w-[140px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-indigo-500"
+              >
+                {QUALITY_FORMAT_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+              onClick={() => void save()}
+              disabled={saving || !baseForm}
+              title={!baseForm ? "配置未加载成功，禁止保存" : undefined}
+            >
+              {saving ? "保存中..." : dirtyCount > 0 ? `保存配置（${dirtyCount}）` : "保存配置"}
+            </button>
+          </div>
         }
       />
 
@@ -2691,6 +2734,13 @@ export default function Page() {
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500">
             建议：先维持默认值，用 20 条样本观察“可用帧数 + 动图/静态图体积 + 主观清晰度”后再微调。
+          </div>
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs text-indigo-700">
+            当前作用域：<span className="font-semibold uppercase">{qualityFormat}</span>
+            {qualityResolvedFrom.length ? (
+              <span> · 生效链路：{qualityResolvedFrom.join(" → ")}</span>
+            ) : null}
+            {qualityOverrideVersion ? <span> · 覆写版本：{qualityOverrideVersion}</span> : null}
           </div>
           {updatedAt ? <div className="text-xs text-slate-400">最近更新时间：{updatedAt}</div> : null}
         </div>

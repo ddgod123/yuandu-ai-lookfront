@@ -1201,6 +1201,25 @@ function resolveGeneratedFormats(item: AdminVideoJobItem) {
   return parseFormatList(item.output_formats);
 }
 
+function resolveExecutionQueue(options?: Record<string, unknown>) {
+  if (!options) return "";
+  const raw = options.execution_queue;
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
+function executionQueueLabel(queue: string) {
+  switch (queue) {
+    case "video_gif":
+      return "GIF 专线";
+    case "video_png":
+      return "PNG/JPG 专线";
+    case "media":
+      return "通用队列";
+    default:
+      return "";
+  }
+}
+
 function formatSeconds(value?: number) {
   if (!value || value <= 0) return "-";
   if (value < 60) return `${value.toFixed(1)}s`;
@@ -4917,6 +4936,8 @@ export default function AdminUserVideoJobsPage() {
                 const rowHighlightFeedback = resolveHighlightFeedbackDrilldown(item.metrics);
                 const itemAssetDomain = normalizeAssetDomain(item.asset_domain);
                 const itemAssetDomainLabel = ASSET_DOMAIN_LABEL[itemAssetDomain] || itemAssetDomain;
+                const executionQueue = resolveExecutionQueue(item.options);
+                const executionQueueText = executionQueueLabel(executionQueue);
                 return (
                 <tr key={item.id} className="transition-colors hover:bg-slate-50/70">
                   <td className="px-4 py-3 align-top">
@@ -4927,6 +4948,12 @@ export default function AdminUserVideoJobsPage() {
                     <div className="mt-1 text-xs text-slate-500">资产域：{itemAssetDomainLabel}</div>
                     <div className="mt-1 text-xs text-slate-500">输入：{sourceProbeSummary}</div>
                     <div className="mt-1 text-xs text-slate-500">请求：{requestedFormats.join(",") || "-"}</div>
+                    {executionQueueText ? (
+                      <div className="mt-1 text-xs text-indigo-600">
+                        执行队列：{executionQueueText}
+                        {executionQueue ? <span className="text-slate-400">（{executionQueue}）</span> : null}
+                      </div>
+                    ) : null}
                     {item.status === "done" ? (
                       <div className="mt-1 text-xs text-emerald-600">生成：{generatedFormats.join(",") || "-"}</div>
                     ) : null}

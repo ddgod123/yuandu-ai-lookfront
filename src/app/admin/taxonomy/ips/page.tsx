@@ -3,6 +3,7 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Edit2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import Link from "next/link";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 
@@ -11,6 +12,7 @@ type IPItem = {
   name: string;
   slug: string;
   cover_url?: string;
+  cover_thumb_url?: string;
   category_id?: number | null;
   description?: string;
   sort?: number;
@@ -74,8 +76,6 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editing, setEditing] = useState<IPItem | null>(null);
 
   const [formName, setFormName] = useState("");
   const [formSlug, setFormSlug] = useState("");
@@ -95,12 +95,6 @@ export default function Page() {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverProgress, setCoverProgress] = useState(0);
-
-  const categoryMap = useMemo(() => {
-    const map = new Map<number, string>();
-    categories.forEach((c) => map.set(c.id, c.name));
-    return map;
-  }, [categories]);
 
   const treeItems = useMemo(() => buildTree(categories), [categories]);
 
@@ -186,47 +180,6 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openCreate = () => {
-    setFormName("");
-    setFormSlug("");
-    setFormCover("");
-    setCoverPickerOpen(false);
-    setCoverQuery("");
-    setCoverResults([]);
-    setCoverMarker("");
-    setCoverHasNext(false);
-    setCoverFile(null);
-    setCoverProgress(0);
-    setCoverUploading(false);
-    setFormCategoryId(0);
-    setFormDesc("");
-    setFormSort(0);
-    setFormStatus("active");
-    setError(null);
-    setCreateOpen(true);
-  };
-
-  const openEdit = (item: IPItem) => {
-    setEditing(item);
-    setFormName(item.name || "");
-    setFormSlug(item.slug || "");
-    setFormCover(item.cover_url || "");
-    setCoverPickerOpen(false);
-    setCoverQuery("");
-    setCoverResults([]);
-    setCoverMarker("");
-    setCoverHasNext(false);
-    setCoverFile(null);
-    setCoverProgress(0);
-    setCoverUploading(false);
-    setFormCategoryId(item.category_id || 0);
-    setFormDesc(item.description || "");
-    setFormSort(item.sort ?? 0);
-    setFormStatus(item.status || "active");
-    setError(null);
-    setEditOpen(true);
-  };
-
   const handleCreate = async () => {
     if (!formName.trim()) {
       setError("请输入IP名称");
@@ -252,37 +205,6 @@ export default function Page() {
       await loadIps(keyword);
     } catch (err: unknown) {
       const message = err instanceof Error ? normalizeError(err.message) : "创建失败";
-      setError(message);
-    }
-  };
-
-  const handleUpdate = async () => {
-    if (!editing) return;
-    if (!formName.trim()) {
-      setError("请输入IP名称");
-      return;
-    }
-    setError(null);
-    try {
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/ips/${editing.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formName.trim(),
-          slug: formSlug.trim(),
-          cover_url: formCover.trim(),
-          category_id: formCategoryId || null,
-          description: formDesc.trim(),
-          sort: formSort,
-          status: formStatus,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setEditOpen(false);
-      setEditing(null);
-      await loadIps(keyword);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? normalizeError(err.message) : "更新失败";
       setError(message);
     }
   };
@@ -354,16 +276,16 @@ export default function Page() {
         xhr.send(form);
       });
 
-      const urlRes = await fetchWithAuth(`${API_BASE}/api/storage/url?key=${encodeURIComponent(uploadKey)}`);
+      // 固定保存 key，避免保存带过期参数的签名 URL。
+      setFormCover(uploadKey);
+      const urlRes = await fetchWithAuth(
+        `${API_BASE}/api/storage/url?key=${encodeURIComponent(uploadKey)}&style=cover_static`
+      );
       if (urlRes.ok) {
         const data = (await urlRes.json()) as { url?: string };
         if (data.url) {
-          setFormCover(data.url);
-        } else {
-          setFormCover(uploadKey);
+          setCoverUrlMap((prev) => ({ ...prev, [uploadKey]: data.url as string }));
         }
-      } else {
-        setFormCover(uploadKey);
       }
       setCoverFile(null);
       setCoverProgress(100);
@@ -377,7 +299,9 @@ export default function Page() {
 
   const fetchStorageUrl = async (key: string) => {
     try {
-      const res = await fetchWithAuth(`${API_BASE}/api/storage/url?key=${encodeURIComponent(key)}`);
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/storage/url?key=${encodeURIComponent(key)}&style=cover_static`
+      );
       if (!res.ok) return "";
       const data = (await res.json()) as { url?: string };
       return data.url || "";
@@ -549,13 +473,13 @@ export default function Page() {
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : "transition-transform group-hover:rotate-180 duration-500"}`} />
               {loading ? "加载中..." : "刷新"}
             </button>
-            <button
+            <Link
               className={`${PRIMARY_BUTTON_CLASS} shadow-sm active:scale-95`}
-              onClick={openCreate}
+              href="/admin/taxonomy/ips/new"
             >
               <Plus className="h-3.5 w-3.5" />
               新建IP
-            </button>
+            </Link>
           </div>
         }
       />
@@ -594,7 +518,6 @@ export default function Page() {
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-3 py-3 font-semibold">IP</th>
-                  <th className="px-3 py-3 font-semibold">分类</th>
                   <th className="px-3 py-3 font-semibold">合集数</th>
                   <th className="px-3 py-3 font-semibold">状态</th>
                   <th className="px-3 py-3 font-semibold">排序</th>
@@ -607,8 +530,12 @@ export default function Page() {
                     <td className="px-3 py-4">
                       <div className="flex items-center gap-3">
                         <div className="h-12 w-12 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
-                          {item.cover_url ? (
-                            <img src={item.cover_url} alt={item.name} className="h-full w-full object-cover" />
+                          {item.cover_thumb_url || item.cover_url ? (
+                            <img
+                              src={item.cover_thumb_url || item.cover_url}
+                              alt={item.name}
+                              className="h-full w-full object-cover"
+                            />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-xs text-slate-300">
                               {item.name?.slice(0, 1) || "IP"}
@@ -620,9 +547,6 @@ export default function Page() {
                           <div className="text-xs text-slate-400">{item.slug}</div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-3 py-4 text-xs text-slate-500">
-                      {item.category_id ? categoryMap.get(item.category_id) || "-" : "-"}
                     </td>
                     <td className="px-3 py-4 text-xs text-slate-500">{item.collection_count ?? 0}</td>
                     <td className="px-3 py-4 text-xs">
@@ -637,13 +561,13 @@ export default function Page() {
                     <td className="px-3 py-4 text-xs text-slate-500">{item.sort ?? 0}</td>
                     <td className="px-3 py-4">
                       <div className="flex items-center gap-2">
-                        <button
+                        <Link
                           className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-600"
-                          onClick={() => openEdit(item)}
+                          href={`/admin/taxonomy/ips/${item.id}/edit`}
                         >
                           <Edit2 className="h-3 w-3" />
                           编辑
-                        </button>
+                        </Link>
                         <button
                           className="flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50"
                           onClick={() => handleDelete(item)}
@@ -657,7 +581,7 @@ export default function Page() {
                 ))}
                 {!ips.length && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-400">
+                    <td colSpan={5} className="px-3 py-10 text-center text-sm text-slate-400">
                       暂无IP
                     </td>
                   </tr>
@@ -697,6 +621,9 @@ export default function Page() {
               onChange={(e) => setFormCover(e.target.value)}
               placeholder="https://..."
             />
+            <div className="mt-2 text-xs text-slate-500">
+              推荐尺寸：<span className="font-semibold text-slate-700">1200 × 640</span>（约 1.88:1，居中主体）
+            </div>
             <CoverUploader
               file={coverFile}
               uploading={coverUploading}
@@ -765,100 +692,6 @@ export default function Page() {
         </div>
       </Modal>
 
-      <Modal open={editOpen && !!editing} title="编辑IP" onClose={() => setEditOpen(false)}>
-        {error && (
-          <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
-            {error}
-          </div>
-        )}
-        <div className="mt-4 space-y-4">
-          <FormItem label="IP名称" required>
-            <input
-              className={INPUT_CLASS}
-              value={formName}
-              onChange={(e) => setFormName(e.target.value)}
-            />
-          </FormItem>
-          <FormItem label="Slug">
-            <input
-              className={INPUT_CLASS}
-              value={formSlug}
-              onChange={(e) => setFormSlug(e.target.value)}
-            />
-          </FormItem>
-          <FormItem label="形象图 URL">
-            <input
-              className={INPUT_CLASS}
-              value={formCover}
-              onChange={(e) => setFormCover(e.target.value)}
-            />
-            <CoverUploader
-              file={coverFile}
-              uploading={coverUploading}
-              progress={coverProgress}
-              onFileChange={setCoverFile}
-              onUpload={uploadCoverFile}
-            />
-            {renderCoverPicker()}
-          </FormItem>
-          <FormItem label="所属分类">
-            <select
-              className={SELECT_CLASS}
-              value={formCategoryId}
-              onChange={(e) => setFormCategoryId(Number(e.target.value))}
-            >
-              <option value={0}>未选择</option>
-              {treeItems.map((item) => (
-                <option key={item.category.id} value={item.category.id}>
-                  {"— ".repeat(item.depth)}
-                  {item.category.name}
-                </option>
-              ))}
-            </select>
-          </FormItem>
-          <FormItem label="简介">
-            <textarea
-              className={`${INPUT_CLASS} h-24 py-2`}
-              value={formDesc}
-              onChange={(e) => setFormDesc(e.target.value)}
-            />
-          </FormItem>
-          <div className="grid grid-cols-2 gap-4">
-            <FormItem label="排序">
-              <input
-                type="number"
-                className={INPUT_CLASS}
-                value={formSort}
-                onChange={(e) => setFormSort(Number(e.target.value))}
-              />
-            </FormItem>
-            <FormItem label="状态">
-              <select
-                className={SELECT_CLASS}
-                value={formStatus}
-                onChange={(e) => setFormStatus(e.target.value)}
-              >
-                <option value="active">启用</option>
-                <option value="inactive">停用</option>
-              </select>
-            </FormItem>
-          </div>
-        </div>
-        <div className="mt-6 flex flex-wrap gap-2">
-          <button
-            className={PRIMARY_BUTTON_CLASS}
-            onClick={handleUpdate}
-          >
-            保存
-          </button>
-          <button
-            className={SECONDARY_BUTTON_CLASS}
-            onClick={() => setEditOpen(false)}
-          >
-            取消
-          </button>
-        </div>
-      </Modal>
     </div>
   );
 }

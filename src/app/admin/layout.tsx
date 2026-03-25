@@ -55,6 +55,17 @@ const NAV = [
     ],
   },
   {
+    title: "表情包版权",
+    items: [
+      { label: "版权工作台", href: "/admin/copyright" },
+      { label: "合集版权识别", href: "/admin/copyright/collections" },
+      { label: "单图版权识别", href: "/admin/copyright/images" },
+      { label: "高风险待复核", href: "/admin/copyright/reviews" },
+      { label: "标签管理（版权）", href: "/admin/copyright/tags" },
+      { label: "识别任务记录", href: "/admin/copyright/tasks" },
+    ],
+  },
+  {
     title: "运营",
     items: [
       { label: "运营数据", href: "/admin/ops/metrics" },
@@ -85,6 +96,18 @@ const NAV = [
   },
 ];
 
+function normalizePath(input: string) {
+  const [path] = input.split("?");
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
+function isPathActive(pathname: string, href: string) {
+  const current = normalizePath(pathname);
+  const target = normalizePath(href);
+  return current === target || current.startsWith(`${target}/`);
+}
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,14 +119,20 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     setCollapsedGroups(prev => ({ ...prev, [title]: !prev[title] }));
   };
 
+  const isSuperAdmin = profile.role === "super_admin";
+  const nav = useMemo(
+    () => NAV.filter((group) => group.title !== "表情包版权" || isSuperAdmin),
+    [isSuperAdmin]
+  );
+
   const currentLabel = useMemo(() => {
-    for (const group of NAV) {
+    for (const group of nav) {
       for (const item of group.items) {
-        if (pathname.startsWith(item.href)) return item.label;
+        if (isPathActive(pathname, item.href)) return item.label;
       }
     }
     return "管理后台";
-  }, [pathname]);
+  }, [pathname, nav]);
 
   useEffect(() => {
     const guard = async () => {
@@ -160,9 +189,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="scrollbar-hide flex-1 space-y-5 overflow-y-auto px-6 py-2">
-          {NAV.map((group) => {
+          {nav.map((group) => {
             const isCollapsed = collapsedGroups[group.title];
-            const groupActive = group.items.some((item) => pathname.startsWith(item.href));
+            const groupActive = group.items.some((item) => isPathActive(pathname, item.href));
             return (
               <div key={group.title}>
                 <button 
@@ -184,7 +213,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 
                 <div className={`space-y-1 transition-all duration-300 overflow-hidden ${isCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
                   {group.items.map((item) => {
-                    const active = pathname.startsWith(item.href);
+                    const active = isPathActive(pathname, item.href);
                     return (
                       <button
                         key={item.href}

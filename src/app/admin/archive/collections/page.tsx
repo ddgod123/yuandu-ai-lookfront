@@ -494,21 +494,24 @@ export default function Page() {
       .filter((key) => key && !key.startsWith("http") && !coverUrlMap[key]);
     const uniqueKeys = Array.from(new Set(keys));
     if (!uniqueKeys.length) return;
-    const entries = await Promise.all(
-      uniqueKeys.map(async (key) => {
-        try {
-          const res = await fetchWithAuth(
-            `${API_BASE}/api/storage/url?key=${encodeURIComponent(key)}`
-          );
-          if (!res.ok) return null;
-          const data = (await res.json()) as { url?: string };
-          if (!data?.url) return null;
-          return [key, data.url] as const;
-        } catch {
-          return null;
-        }
-      })
-    );
+    let entries: Array<readonly [string, string]> = [];
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/storage/urls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keys: uniqueKeys,
+          style: "cover_static",
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { items?: { key: string; url?: string }[] };
+      entries = (data.items || [])
+        .filter((item) => item?.key && item?.url)
+        .map((item) => [item.key, item.url as string] as const);
+    } catch {
+      entries = [];
+    }
     const map: Record<string, string> = {};
     entries.forEach((entry) => {
       if (entry) {
@@ -1837,7 +1840,7 @@ function buildStaticPreview(url: string) {
   if (!val.startsWith("http://") && !val.startsWith("https://")) return "";
   if (val.includes("token=") || val.includes("e=")) return "";
   const separator = val.includes("?") ? "&" : "?";
-  return `${val}${separator}imageMogr2/format/png`;
+  return `${val}${separator}imageMogr2/thumbnail/!160x160r/gravity/Center/crop/160x160/format/webp`;
 }
 
 function buildCoverSources(url: string, key: string) {
