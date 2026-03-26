@@ -168,6 +168,7 @@ type AdminGIFHealthTrendResponse = {
 
 type AdminWorkerQueueStatus = {
   name?: string;
+  paused?: boolean;
   pending?: number;
   active?: number;
   scheduled?: number;
@@ -175,6 +176,21 @@ type AdminWorkerQueueStatus = {
   latency_seconds?: number;
   processed_today?: number;
   failed_today?: number;
+};
+
+type AdminWorkerLaneStatus = {
+  role?: string;
+  label?: string;
+  queue_name?: string;
+  health?: string;
+  servers_total?: number;
+  servers_active?: number;
+  alerts?: string[];
+  start_enabled?: boolean;
+  start_hint?: string;
+  stop_enabled?: boolean;
+  stop_hint?: string;
+  queue?: AdminWorkerQueueStatus;
 };
 
 type AdminWorkerHealthResponse = {
@@ -189,6 +205,9 @@ type AdminWorkerHealthResponse = {
   alerts?: string[];
   start_enabled?: boolean;
   start_hint?: string;
+  stop_enabled?: boolean;
+  stop_hint?: string;
+  lanes?: AdminWorkerLaneStatus[];
   queue?: AdminWorkerQueueStatus;
 };
 
@@ -265,7 +284,7 @@ export default function AdminGIFSQLHealthPage() {
   const [windowHours, setWindowHours] = useState("24");
   const [loading, setLoading] = useState(false);
   const [exportingTrend, setExportingTrend] = useState(false);
-  const [startingWorker, setStartingWorker] = useState(false);
+  const [workerActionLoadingKey, setWorkerActionLoadingKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [workerError, setWorkerError] = useState<string | null>(null);
   const [workerActionMessage, setWorkerActionMessage] = useState<string | null>(null);
@@ -289,6 +308,7 @@ export default function AdminGIFSQLHealthPage() {
   const candidateTop = Array.isArray(report?.candidate_top) ? report?.candidate_top || [] : [];
   const trendPoints = Array.isArray(trend?.points) ? trend?.points || [] : [];
   const workerAlerts = Array.isArray(workerHealth?.alerts) ? workerHealth?.alerts || [] : [];
+  const workerLanes = Array.isArray(workerHealth?.lanes) ? workerHealth?.lanes || [] : [];
 
   const fetchWorkerHealth = async () => {
     try {
@@ -347,13 +367,17 @@ export default function AdminGIFSQLHealthPage() {
     }
   };
 
-  const startWorker = async () => {
-    if (startingWorker) return;
-    setStartingWorker(true);
+  const handleWorkerAction = async (action: "start" | "stop", role: string) => {
+    const normalizedRole = (role || "").trim().toLowerCase() || "all";
+    const loadingKey = `${action}:${normalizedRole}`;
+    if (workerActionLoadingKey) return;
+    setWorkerActionLoadingKey(loadingKey);
     setWorkerActionMessage(null);
     try {
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-start`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-${action}`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: normalizedRole }),
       });
       const text = await res.text();
       let payload: { message?: string; error?: string } = {};
@@ -365,14 +389,14 @@ export default function AdminGIFSQLHealthPage() {
         }
       }
       if (!res.ok) {
-        throw new Error(payload.error || payload.message || "启动 worker 失败");
+        throw new Error(payload.error || payload.message || `${action === "start" ? "启动" : "停机"} worker 失败`);
       }
-      setWorkerActionMessage(payload.message || "已执行启动命令");
+      setWorkerActionMessage(payload.message || `已执行${action === "start" ? "启动" : "停机"}命令`);
       await fetchWorkerHealth();
     } catch (err: unknown) {
-      setWorkerActionMessage(err instanceof Error ? err.message : "启动 worker 失败");
+      setWorkerActionMessage(err instanceof Error ? err.message : `${action === "start" ? "启动" : "停机"} worker 失败`);
     } finally {
-      setStartingWorker(false);
+      setWorkerActionLoadingKey("");
     }
   };
 
@@ -500,12 +524,20 @@ export default function AdminGIFSQLHealthPage() {
               刷新 Worker
             </button>
             <button
-              onClick={() => void startWorker()}
-              disabled={startingWorker || !workerHealth?.start_enabled}
+              onClick={() => void handleWorkerAction("start", "all")}
+              disabled={workerActionLoadingKey !== "" || !workerHealth?.start_enabled}
               className="h-9 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-              title={workerHealth?.start_enabled ? "执行启动命令" : workerHealth?.start_hint || "未配置一键启动"}
+              title={workerHealth?.start_enabled ? "恢复队列并尝试启动 worker" : workerHealth?.start_hint || "未配置一键启动"}
             >
-              {startingWorker ? "启动中..." : "一键启动 Worker"}
+              {workerActionLoadingKey === "start:all" ? "启动中..." : "一键启动 Worker"}
+            </button>
+            <button
+              onClick={() => void handleWorkerAction("stop", "all")}
+              disabled={workerActionLoadingKey !== "" || !workerHealth?.stop_enabled}
+              className="h-9 rounded-xl border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              title={workerHealth?.stop_enabled ? "暂停队列并尝试停机 worker" : workerHealth?.stop_hint || "未配置一键停机"}
+            >
+              {workerActionLoadingKey === "stop:all" ? "停机中..." : "一键停机 Worker"}
             </button>
           </div>
         </div>
@@ -540,6 +572,63 @@ export default function AdminGIFSQLHealthPage() {
         {workerAlerts.length ? (
           <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
             {workerAlerts.join("；")}
+          </div>
+        ) : null}
+
+        {workerLanes.length ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {workerLanes.map((lane) => {
+              const laneHealth = String(lane.health || "").toLowerCase();
+              const laneMeta = WORKER_HEALTH_META[laneHealth] || {
+                label: lane.health || "未知",
+                className: "border-slate-200 bg-slate-50 text-slate-700",
+              };
+              const role = String(lane.role || "").toLowerCase() || "unknown";
+              const startKey = `start:${role}`;
+              const stopKey = `stop:${role}`;
+              return (
+                <div key={`${role}-${lane.queue_name || lane.queue?.name || ""}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">{lane.label || role.toUpperCase()} Worker</div>
+                      <div className="text-[11px] text-slate-500">{lane.queue?.name || lane.queue_name || "-"}</div>
+                    </div>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${laneMeta.className}`}>
+                      {laneMeta.label}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-slate-600">
+                    <div>在线：{formatInt(lane.servers_active)} / {formatInt(lane.servers_total)}</div>
+                    <div>积压：{formatInt(lane.queue?.pending)}</div>
+                    <div>延迟：{formatDecimal(lane.queue?.latency_seconds, 0)}s</div>
+                    <div>状态：{lane.queue?.paused ? "队列已暂停" : "队列运行中"}</div>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => void handleWorkerAction("start", role)}
+                      disabled={workerActionLoadingKey !== "" || !lane.start_enabled}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={lane.start_enabled ? "恢复队列并尝试启动" : lane.start_hint || "不可用"}
+                    >
+                      {workerActionLoadingKey === startKey ? "启动中..." : "启动"}
+                    </button>
+                    <button
+                      onClick={() => void handleWorkerAction("stop", role)}
+                      disabled={workerActionLoadingKey !== "" || !lane.stop_enabled}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={lane.stop_enabled ? "暂停队列并尝试停机" : lane.stop_hint || "不可用"}
+                    >
+                      {workerActionLoadingKey === stopKey ? "停机中..." : "停机"}
+                    </button>
+                  </div>
+                  {Array.isArray(lane.alerts) && lane.alerts.length ? (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+                      {lane.alerts.filter(Boolean).join("；")}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </div>

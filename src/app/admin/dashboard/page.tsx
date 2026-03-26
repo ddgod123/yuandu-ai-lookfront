@@ -91,6 +91,22 @@ type WorkerQueueInfoResponse = {
   scheduled?: number;
   retry?: number;
   latency_seconds?: number;
+  paused?: boolean;
+};
+
+type WorkerLaneHealthResponse = {
+  role?: string;
+  label?: string;
+  queue_name?: string;
+  health?: string;
+  servers_total?: number;
+  servers_active?: number;
+  alerts?: string[];
+  start_enabled?: boolean;
+  start_hint?: string;
+  stop_enabled?: boolean;
+  stop_hint?: string;
+  queue?: WorkerQueueInfoResponse;
 };
 
 type WorkerHealthResponse = {
@@ -100,11 +116,34 @@ type WorkerHealthResponse = {
   servers_total?: number;
   servers_active?: number;
   queue?: WorkerQueueInfoResponse;
+  lanes?: WorkerLaneHealthResponse[];
   stale_queued_jobs?: number;
   alerts?: string[];
   checked_at?: string;
   start_enabled?: boolean;
   start_hint?: string;
+  stop_enabled?: boolean;
+  stop_hint?: string;
+};
+
+type DashboardWorkerLane = {
+  role: string;
+  label: string;
+  queueName: string;
+  health: "green" | "yellow" | "red" | "unknown";
+  serversTotal: number;
+  serversActive: number;
+  pending: number;
+  active: number;
+  retry: number;
+  scheduled: number;
+  latencySeconds: number;
+  paused: boolean;
+  alerts: string[];
+  startEnabled: boolean;
+  startHint: string;
+  stopEnabled: boolean;
+  stopHint: string;
 };
 
 type DashboardWorkerHealth = {
@@ -123,6 +162,9 @@ type DashboardWorkerHealth = {
   checkedAt: string;
   startEnabled: boolean;
   startHint: string;
+  stopEnabled: boolean;
+  stopHint: string;
+  lanes: DashboardWorkerLane[];
 };
 
 const EMPTY_SUMMARY: DashboardSummary = {
@@ -159,6 +201,9 @@ const EMPTY_WORKER_HEALTH: DashboardWorkerHealth = {
   checkedAt: "",
   startEnabled: false,
   startHint: "",
+  stopEnabled: false,
+  stopHint: "",
+  lanes: [],
 };
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -177,7 +222,7 @@ export default function DashboardPage() {
   const [trendItems, setTrendItems] = useState<DashboardTrendPoint[]>([]);
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
-  const [startingWorker, setStartingWorker] = useState(false);
+  const [workerActionLoadingKey, setWorkerActionLoadingKey] = useState("");
   const [workerActionMessage, setWorkerActionMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -304,6 +349,29 @@ export default function DashboardPage() {
         checkedAt: (workerData.checked_at || "").trim(),
         startEnabled: Boolean(workerData.start_enabled),
         startHint: (workerData.start_hint || "").trim(),
+        stopEnabled: Boolean(workerData.stop_enabled),
+        stopHint: (workerData.stop_hint || "").trim(),
+        lanes: Array.isArray(workerData.lanes)
+          ? workerData.lanes.map((lane) => ({
+              role: ((lane.role || "").trim().toLowerCase() || "unknown"),
+              label: (lane.label || "").trim() || ((lane.role || "").trim().toUpperCase() || "UNKNOWN"),
+              queueName: (lane.queue?.name || lane.queue_name || "").trim(),
+              health: normalizeWorkerHealth(lane.health),
+              serversTotal: Number(lane.servers_total || 0),
+              serversActive: Number(lane.servers_active || 0),
+              pending: Number(lane.queue?.pending || 0),
+              active: Number(lane.queue?.active || 0),
+              retry: Number(lane.queue?.retry || 0),
+              scheduled: Number(lane.queue?.scheduled || 0),
+              latencySeconds: Number(lane.queue?.latency_seconds || 0),
+              paused: Boolean(lane.queue?.paused),
+              alerts: Array.isArray(lane.alerts) ? lane.alerts.filter(Boolean).slice(0, 2) : [],
+              startEnabled: Boolean(lane.start_enabled),
+              startHint: (lane.start_hint || "").trim(),
+              stopEnabled: Boolean(lane.stop_enabled),
+              stopHint: (lane.stop_hint || "").trim(),
+            }))
+          : [],
       });
       setFetchedAt(new Date().toISOString());
 
@@ -323,32 +391,40 @@ export default function DashboardPage() {
     loadDashboard();
   }, [loadDashboard]);
 
-  const handleStartWorker = useCallback(async () => {
-    if (startingWorker) return;
-    setStartingWorker(true);
-    setWorkerActionMessage("");
-    try {
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-start`, {
-        method: "POST",
-      });
-      let payload: { message?: string; error?: string } = {};
+  const handleWorkerAction = useCallback(
+    async (action: "start" | "stop", role: string) => {
+      const normalizedRole = (role || "").trim().toLowerCase() || "all";
+      const loadingKey = `${action}:${normalizedRole}`;
+      if (workerActionLoadingKey) return;
+      setWorkerActionLoadingKey(loadingKey);
+      setWorkerActionMessage("");
       try {
-        payload = (await res.json()) as { message?: string; error?: string };
-      } catch {
-        payload = {};
+        const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: normalizedRole }),
+        });
+        let payload: { message?: string; error?: string } = {};
+        try {
+          payload = (await res.json()) as { message?: string; error?: string };
+        } catch {
+          payload = {};
+        }
+        if (!res.ok) {
+          throw new Error((payload.error || "").trim() || `HTTP ${res.status}`);
+        }
+        const defaultMsg = action === "start" ? "Worker 启动命令已执行" : "Worker 停机命令已执行";
+        setWorkerActionMessage((payload.message || defaultMsg).trim());
+        await loadDashboard();
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "未知错误";
+        setWorkerActionMessage(`${action === "start" ? "启动" : "停机"}失败：${message}`);
+      } finally {
+        setWorkerActionLoadingKey("");
       }
-      if (!res.ok) {
-        throw new Error((payload.error || "").trim() || `HTTP ${res.status}`);
-      }
-      setWorkerActionMessage((payload.message || "Worker 启动命令已执行").trim());
-      await loadDashboard();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "未知错误";
-      setWorkerActionMessage(`启动失败：${message}`);
-    } finally {
-      setStartingWorker(false);
-    }
-  }, [loadDashboard, startingWorker]);
+    },
+    [loadDashboard, workerActionLoadingKey]
+  );
 
   const needsAttention = queue.uploadFailed + queue.blockedLast24h + queue.rateLimitedLast24h;
   const workerHealthMeta = useMemo(() => {
@@ -615,11 +691,19 @@ export default function DashboardPage() {
             </span>
             <button
               className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={handleStartWorker}
-              disabled={!workerHealth.startEnabled || startingWorker}
-              title={workerHealth.startEnabled ? "执行 WORKER_START_COMMAND" : workerHealth.startHint}
+              onClick={() => void handleWorkerAction("start", "all")}
+              disabled={!workerHealth.startEnabled || workerActionLoadingKey !== ""}
+              title={workerHealth.startEnabled ? "恢复队列并尝试启动 worker" : workerHealth.startHint}
             >
-              {startingWorker ? "启动中..." : "一键启动 Worker"}
+              {workerActionLoadingKey === "start:all" ? "启动中..." : "一键启动 Worker"}
+            </button>
+            <button
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleWorkerAction("stop", "all")}
+              disabled={!workerHealth.stopEnabled || workerActionLoadingKey !== ""}
+              title={workerHealth.stopEnabled ? "暂停队列并尝试停机 worker" : workerHealth.stopHint}
+            >
+              {workerActionLoadingKey === "stop:all" ? "停机中..." : "一键停机 Worker"}
             </button>
           </div>
         </div>
@@ -666,6 +750,65 @@ export default function DashboardPage() {
         {workerHealth.alerts.length > 0 && (
           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
             {workerHealth.alerts.join("；")}
+          </div>
+        )}
+
+        {workerHealth.lanes.length > 0 && (
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {workerHealth.lanes.map((lane) => {
+              const laneMeta =
+                lane.health === "green"
+                  ? { label: "健康", className: "border-emerald-200 bg-emerald-50 text-emerald-700" }
+                  : lane.health === "yellow"
+                    ? { label: "告警", className: "border-amber-200 bg-amber-50 text-amber-700" }
+                    : lane.health === "red"
+                      ? { label: "异常", className: "border-rose-200 bg-rose-50 text-rose-700" }
+                      : { label: "未知", className: "border-slate-200 bg-slate-100 text-slate-600" };
+              const startKey = `start:${lane.role}`;
+              const stopKey = `stop:${lane.role}`;
+              return (
+                <div key={`${lane.role}-${lane.queueName}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">{lane.label} Worker</div>
+                      <div className="text-[11px] text-slate-500">{lane.queueName || "-"}</div>
+                    </div>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${laneMeta.className}`}>
+                      {laneMeta.label}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-slate-600">
+                    <div>在线：{formatNumber(lane.serversActive)}/{formatNumber(lane.serversTotal)}</div>
+                    <div>积压：{formatNumber(lane.pending)}</div>
+                    <div>延迟：{Math.max(0, Math.round(lane.latencySeconds))}s</div>
+                    <div>状态：{lane.paused ? "队列已暂停" : "队列运行中"}</div>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void handleWorkerAction("start", lane.role)}
+                      disabled={!lane.startEnabled || workerActionLoadingKey !== ""}
+                      title={lane.startEnabled ? "恢复此专线队列并尝试启动" : lane.startHint}
+                    >
+                      {workerActionLoadingKey === startKey ? "启动中..." : "启动"}
+                    </button>
+                    <button
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void handleWorkerAction("stop", lane.role)}
+                      disabled={!lane.stopEnabled || workerActionLoadingKey !== ""}
+                      title={lane.stopEnabled ? "暂停此专线队列并尝试停机" : lane.stopHint}
+                    >
+                      {workerActionLoadingKey === stopKey ? "停机中..." : "停机"}
+                    </button>
+                  </div>
+                  {lane.alerts.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+                      {lane.alerts.join("；")}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
