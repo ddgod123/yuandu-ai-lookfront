@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 
@@ -332,6 +333,54 @@ const QUALITY_FORMAT_OPTIONS: Array<{ value: QualityFormatScope; label: string }
   { value: "mp4", label: "MP4" },
 ];
 
+const QUALITY_SCOPE_TITLES: Record<QualityFormatScope, string> = {
+  all: "视频转图质量",
+  gif: "视频转图GIF质量",
+  png: "视频转图PNG质量",
+  jpg: "视频转图JPG质量",
+  webp: "视频转图WebP质量",
+  live: "视频转图Live质量",
+  mp4: "视频转图MP4质量",
+};
+
+function normalizeQualityFormatScope(value?: string): QualityFormatScope {
+  const lower = (value || "").trim().toLowerCase();
+  switch (lower) {
+    case "gif":
+    case "png":
+    case "jpg":
+    case "webp":
+    case "live":
+    case "mp4":
+      return lower;
+    default:
+      return "all";
+  }
+}
+
+function resolveLockedQualityFormatByPath(pathname?: string): QualityFormatScope | null {
+  const current = (pathname || "").split("?")[0].replace(/\/+$/, "");
+  if (current.endsWith("/admin/settings/video-quality") || current.endsWith("/admin/settings/video-quality/gif")) {
+    return "gif";
+  }
+  if (current.endsWith("/admin/settings/video-quality/png")) {
+    return "png";
+  }
+  if (current.endsWith("/admin/settings/video-quality/jpg")) {
+    return "jpg";
+  }
+  if (current.endsWith("/admin/settings/video-quality/webp")) {
+    return "webp";
+  }
+  if (current.endsWith("/admin/settings/video-quality/live")) {
+    return "live";
+  }
+  if (current.endsWith("/admin/settings/video-quality/mp4")) {
+    return "mp4";
+  }
+  return null;
+}
+
 const TEMPLATE_TAB_OPTIONS: Array<{ value: PromptTemplateTabKey; label: string; desc: string }> = [
   { value: "ai1", label: "AI1 模板", desc: "可编辑层 + 固定层" },
   { value: "ai2", label: "AI2 模板", desc: "固定层（提名阶段）" },
@@ -536,6 +585,19 @@ function normalizePromptTemplateFormat(value?: string): PromptTemplateFormat {
   }
 }
 
+function resolveTemplateFormatByQualityScope(scope: QualityFormatScope): PromptTemplateFormat {
+  switch (scope) {
+    case "gif":
+    case "png":
+    case "jpg":
+    case "webp":
+    case "live":
+      return scope;
+    default:
+      return "all";
+  }
+}
+
 function normalizePromptTemplateStage(value?: string): PromptTemplateStage | "" {
   const lower = (value || "").trim().toLowerCase();
   if (lower === "ai1" || lower === "ai2" || lower === "ai3" || lower === "scoring") return lower;
@@ -566,13 +628,18 @@ function mapFallbackAuditToEffectCard(item: VideoJobsOverviewRolloutAudit): Vide
 }
 
 export default function Page() {
+  const pathname = usePathname();
+  const lockedQualityFormat = resolveLockedQualityFormatByPath(pathname);
+  const initialQualityFormat = lockedQualityFormat || "all";
+  const initialTemplateFormat = resolveTemplateFormatByQualityScope(initialQualityFormat);
+
   const [form, setForm] = useState<VideoQualitySetting>(DEFAULT_FORM);
   const [baseForm, setBaseForm] = useState<VideoQualitySetting | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [qualityFormat, setQualityFormat] = useState<QualityFormatScope>("all");
+  const [qualityFormat, setQualityFormat] = useState<QualityFormatScope>(initialQualityFormat);
   const [qualityResolvedFrom, setQualityResolvedFrom] = useState<string[]>([]);
   const [qualityOverrideVersion, setQualityOverrideVersion] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
@@ -580,7 +647,7 @@ export default function Page() {
   const [rolloutEffectsLoading, setRolloutEffectsLoading] = useState(false);
   const [rolloutEffectsError, setRolloutEffectsError] = useState<string | null>(null);
   const [rolloutEffectsFallbackUsed, setRolloutEffectsFallbackUsed] = useState(false);
-  const [templateFormat, setTemplateFormat] = useState<PromptTemplateFormat>("all");
+  const [templateFormat, setTemplateFormat] = useState<PromptTemplateFormat>(initialTemplateFormat);
   const [templateTab, setTemplateTab] = useState<PromptTemplateTabKey>("ai1");
   const [templateItems, setTemplateItems] = useState<AdminVideoAIPromptTemplateItem[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
@@ -600,6 +667,11 @@ export default function Page() {
   const [ai1ConstraintJSON, setAi1ConstraintJSON] = useState("");
   const [ai1ConstraintError, setAi1ConstraintError] = useState<string | null>(null);
   const [ai1ConstraintSuccess, setAi1ConstraintSuccess] = useState<string | null>(null);
+
+  const activeQualityFormat = normalizeQualityFormatScope(lockedQualityFormat || qualityFormat);
+  const qualityTitle = QUALITY_SCOPE_TITLES[activeQualityFormat] || "视频转图质量";
+  const qualityScopeLabel =
+    QUALITY_FORMAT_OPTIONS.find((item) => item.value === activeQualityFormat)?.label || activeQualityFormat.toUpperCase();
 
   const dirtyKeys = (() => {
     if (!baseForm) return [] as Array<keyof VideoQualitySetting>;
@@ -900,6 +972,20 @@ export default function Page() {
   };
 
   useEffect(() => {
+    if (!lockedQualityFormat) {
+      return;
+    }
+    const normalized = normalizeQualityFormatScope(lockedQualityFormat);
+    if (qualityFormat !== normalized) {
+      setQualityFormat(normalized);
+    }
+    const fixedTemplate = resolveTemplateFormatByQualityScope(normalized);
+    if (templateFormat !== fixedTemplate) {
+      setTemplateFormat(fixedTemplate);
+    }
+  }, [lockedQualityFormat, qualityFormat, templateFormat]);
+
+  useEffect(() => {
     const load = async () => {
       setLoading(true);
       setRolloutEffectsLoading(true);
@@ -1012,7 +1098,7 @@ export default function Page() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <SectionHeader title="视频转图质量" description="加载中..." />
+        <SectionHeader title={qualityTitle} description="加载中..." />
       </div>
     );
   }
@@ -1020,24 +1106,34 @@ export default function Page() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="视频转图质量"
-        description="配置帧质量过滤阈值与 GIF 输出参数，目标是“更清晰 + 更稳定 + 更有代表性”。"
+        title={qualityTitle}
+        description={
+          lockedQualityFormat
+            ? `当前为 ${qualityScopeLabel} 专属配置页（固定格式，不支持切换作用域）。`
+            : "配置帧质量过滤阈值与 GIF 输出参数，目标是“更清晰 + 更稳定 + 更有代表性”。"
+        }
         actions={
           <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500">
-              <span className="sr-only">配置作用域</span>
-              <select
-                value={qualityFormat}
-                onChange={(e) => setQualityFormat(e.target.value as QualityFormatScope)}
-                className="min-w-[140px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-indigo-500"
-              >
-                {QUALITY_FORMAT_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {lockedQualityFormat ? (
+              <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+                作用域：{qualityScopeLabel}
+              </span>
+            ) : (
+              <label className="text-xs text-slate-500">
+                <span className="sr-only">配置作用域</span>
+                <select
+                  value={qualityFormat}
+                  onChange={(e) => setQualityFormat(normalizeQualityFormatScope(e.target.value))}
+                  className="min-w-[140px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-indigo-500"
+                >
+                  {QUALITY_FORMAT_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
               onClick={() => void save()}
@@ -1069,23 +1165,31 @@ export default function Page() {
           <div>
             <h3 className="text-sm font-bold text-indigo-800">AI 模板中心（AI1 / AI2 / 评分 / AI3）</h3>
             <p className="mt-1 text-xs text-indigo-700/80">
-              支持按格式切换。AI1 提供“可编辑层 + 固定层”；AI2、评分、AI3 采用固定层模板。
+              {lockedQualityFormat
+                ? `当前固定为 ${qualityScopeLabel}，AI1 提供“可编辑层 + 固定层”；AI2、评分、AI3 采用固定层模板。`
+                : "支持按格式切换。AI1 提供“可编辑层 + 固定层”；AI2、评分、AI3 采用固定层模板。"}
             </p>
           </div>
-          <label className="text-xs text-indigo-700">
-            <span className="mb-1 block">格式范围</span>
-            <select
-              value={templateFormat}
-              onChange={(e) => setTemplateFormat(normalizePromptTemplateFormat(e.target.value))}
-              className="min-w-[180px] rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
-            >
-              {TEMPLATE_FORMAT_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {lockedQualityFormat ? (
+            <span className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700">
+              模板作用域：{templateFormat.toUpperCase()}
+            </span>
+          ) : (
+            <label className="text-xs text-indigo-700">
+              <span className="mb-1 block">格式范围</span>
+              <select
+                value={templateFormat}
+                onChange={(e) => setTemplateFormat(normalizePromptTemplateFormat(e.target.value))}
+                className="min-w-[180px] rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+              >
+                {TEMPLATE_FORMAT_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2">
