@@ -193,6 +193,32 @@ type AdminWorkerLaneStatus = {
   queue?: AdminWorkerQueueStatus;
 };
 
+type AdminWorkerGuardAction = {
+  role?: string;
+  label?: string;
+  queue_name?: string;
+  action?: string;
+  trigger?: string;
+  status?: string;
+  message?: string;
+  source?: string;
+  created_at?: string;
+};
+
+type AdminWorkerGuardPolicy = {
+  enabled?: boolean;
+  auto_pause_enabled?: boolean;
+  auto_run_on_health?: boolean;
+};
+
+type AdminWorkerGuardStatus = {
+  policy?: AdminWorkerGuardPolicy;
+  recommended_actions?: AdminWorkerGuardAction[];
+  applied_actions?: AdminWorkerGuardAction[];
+  recent_actions?: AdminWorkerGuardAction[];
+  last_run_at?: string;
+};
+
 type AdminWorkerHealthResponse = {
   checked_at?: string;
   health?: "green" | "yellow" | "red" | string;
@@ -208,6 +234,7 @@ type AdminWorkerHealthResponse = {
   stop_enabled?: boolean;
   stop_hint?: string;
   lanes?: AdminWorkerLaneStatus[];
+  guard?: AdminWorkerGuardStatus;
   queue?: AdminWorkerQueueStatus;
 };
 
@@ -309,6 +336,9 @@ export default function AdminGIFSQLHealthPage() {
   const trendPoints = Array.isArray(trend?.points) ? trend?.points || [] : [];
   const workerAlerts = Array.isArray(workerHealth?.alerts) ? workerHealth?.alerts || [] : [];
   const workerLanes = Array.isArray(workerHealth?.lanes) ? workerHealth?.lanes || [] : [];
+  const workerGuardRecommended = Array.isArray(workerHealth?.guard?.recommended_actions) ? workerHealth?.guard?.recommended_actions || [] : [];
+  const workerGuardApplied = Array.isArray(workerHealth?.guard?.applied_actions) ? workerHealth?.guard?.applied_actions || [] : [];
+  const workerGuardRecent = Array.isArray(workerHealth?.guard?.recent_actions) ? workerHealth?.guard?.recent_actions || [] : [];
 
   const fetchWorkerHealth = async () => {
     try {
@@ -395,6 +425,38 @@ export default function AdminGIFSQLHealthPage() {
       await fetchWorkerHealth();
     } catch (err: unknown) {
       setWorkerActionMessage(err instanceof Error ? err.message : `${action === "start" ? "启动" : "停机"} worker 失败`);
+    } finally {
+      setWorkerActionLoadingKey("");
+    }
+  };
+
+  const runWorkerGuard = async (apply: boolean) => {
+    const loadingKey = apply ? "guard:apply" : "guard:preview";
+    if (workerActionLoadingKey) return;
+    setWorkerActionLoadingKey(loadingKey);
+    setWorkerActionMessage(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-guard/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply }),
+      });
+      const text = await res.text();
+      let payload: { message?: string; error?: string } = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text) as { message?: string; error?: string };
+        } catch {
+          payload = { message: text };
+        }
+      }
+      if (!res.ok) {
+        throw new Error(payload.error || payload.message || "执行 worker guard 失败");
+      }
+      setWorkerActionMessage(payload.message || "worker guard 已执行");
+      await fetchWorkerHealth();
+    } catch (err: unknown) {
+      setWorkerActionMessage(err instanceof Error ? err.message : "执行 worker guard 失败");
     } finally {
       setWorkerActionLoadingKey("");
     }
@@ -539,6 +601,22 @@ export default function AdminGIFSQLHealthPage() {
             >
               {workerActionLoadingKey === "stop:all" ? "停机中..." : "一键停机 Worker"}
             </button>
+            <button
+              onClick={() => void runWorkerGuard(false)}
+              disabled={workerActionLoadingKey !== "" || !workerHealth?.guard?.policy?.enabled}
+              className="h-9 rounded-xl border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              title={workerHealth?.guard?.policy?.enabled ? "仅预览，不执行动作" : "Guard 未启用"}
+            >
+              {workerActionLoadingKey === "guard:preview" ? "巡检中..." : "巡检预览"}
+            </button>
+            <button
+              onClick={() => void runWorkerGuard(true)}
+              disabled={workerActionLoadingKey !== "" || !workerHealth?.guard?.policy?.enabled}
+              className="h-9 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+              title={workerHealth?.guard?.policy?.enabled ? "执行一次自动巡检策略" : "Guard 未启用"}
+            >
+              {workerActionLoadingKey === "guard:apply" ? "执行中..." : "执行自动巡检"}
+            </button>
           </div>
         </div>
 
@@ -574,6 +652,24 @@ export default function AdminGIFSQLHealthPage() {
             {workerAlerts.join("；")}
           </div>
         ) : null}
+
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-semibold">Worker Guard</span>
+            <span>开关：{workerHealth?.guard?.policy?.enabled ? "开启" : "关闭"}</span>
+            <span>自动暂停：{workerHealth?.guard?.policy?.auto_pause_enabled ? "开启" : "关闭"}</span>
+            <span>健康页自动执行：{workerHealth?.guard?.policy?.auto_run_on_health ? "开启" : "关闭"}</span>
+            <span>最近执行：{formatTime(workerHealth?.guard?.last_run_at)}</span>
+          </div>
+          <div className="mt-1">
+            本次建议 {formatInt(workerGuardRecommended.length)} 项，已执行 {formatInt(workerGuardApplied.length)} 项
+          </div>
+          {workerGuardRecent.length ? (
+            <div className="mt-1 text-[11px] text-indigo-700">
+              最近动作：{workerGuardRecent.slice(0, 3).map((item) => `${item.label || item.role || "-"}:${item.status || "-"}`).join("；")}
+            </div>
+          ) : null}
+        </div>
 
         {workerLanes.length ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">

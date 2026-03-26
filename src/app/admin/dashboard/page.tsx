@@ -109,6 +109,39 @@ type WorkerLaneHealthResponse = {
   queue?: WorkerQueueInfoResponse;
 };
 
+type WorkerGuardActionResponse = {
+  role?: string;
+  label?: string;
+  queue_name?: string;
+  action?: string;
+  trigger?: string;
+  status?: string;
+  message?: string;
+  source?: string;
+  created_at?: string;
+};
+
+type WorkerGuardPolicyResponse = {
+  enabled?: boolean;
+  auto_pause_enabled?: boolean;
+  auto_run_on_health?: boolean;
+  latency_warn_seconds?: number;
+  latency_critical_seconds?: number;
+  pending_warn?: number;
+  pending_critical?: number;
+  retry_critical?: number;
+  stale_queued_critical?: number;
+  pause_cooldown_seconds?: number;
+};
+
+type WorkerGuardStatusResponse = {
+  policy?: WorkerGuardPolicyResponse;
+  recommended_actions?: WorkerGuardActionResponse[];
+  applied_actions?: WorkerGuardActionResponse[];
+  recent_actions?: WorkerGuardActionResponse[];
+  last_run_at?: string;
+};
+
 type WorkerHealthResponse = {
   health?: string;
   redis_reachable?: boolean;
@@ -124,6 +157,7 @@ type WorkerHealthResponse = {
   start_hint?: string;
   stop_enabled?: boolean;
   stop_hint?: string;
+  guard?: WorkerGuardStatusResponse;
 };
 
 type DashboardWorkerLane = {
@@ -146,6 +180,16 @@ type DashboardWorkerLane = {
   stopHint: string;
 };
 
+type DashboardWorkerGuardAction = {
+  role: string;
+  label: string;
+  queueName: string;
+  trigger: string;
+  status: string;
+  message: string;
+  createdAt: string;
+};
+
 type DashboardWorkerHealth = {
   health: "green" | "yellow" | "red" | "unknown";
   redisReachable: boolean;
@@ -165,6 +209,13 @@ type DashboardWorkerHealth = {
   stopEnabled: boolean;
   stopHint: string;
   lanes: DashboardWorkerLane[];
+  guardEnabled: boolean;
+  guardAutoPause: boolean;
+  guardAutoRun: boolean;
+  guardLastRunAt: string;
+  guardRecommended: DashboardWorkerGuardAction[];
+  guardApplied: DashboardWorkerGuardAction[];
+  guardRecent: DashboardWorkerGuardAction[];
 };
 
 const EMPTY_SUMMARY: DashboardSummary = {
@@ -204,6 +255,13 @@ const EMPTY_WORKER_HEALTH: DashboardWorkerHealth = {
   stopEnabled: false,
   stopHint: "",
   lanes: [],
+  guardEnabled: false,
+  guardAutoPause: false,
+  guardAutoRun: false,
+  guardLastRunAt: "",
+  guardRecommended: [],
+  guardApplied: [],
+  guardRecent: [],
 };
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -372,6 +430,13 @@ export default function DashboardPage() {
               stopHint: (lane.stop_hint || "").trim(),
             }))
           : [],
+        guardEnabled: Boolean(workerData.guard?.policy?.enabled),
+        guardAutoPause: Boolean(workerData.guard?.policy?.auto_pause_enabled),
+        guardAutoRun: Boolean(workerData.guard?.policy?.auto_run_on_health),
+        guardLastRunAt: (workerData.guard?.last_run_at || "").trim(),
+        guardRecommended: mapWorkerGuardActions(workerData.guard?.recommended_actions),
+        guardApplied: mapWorkerGuardActions(workerData.guard?.applied_actions),
+        guardRecent: mapWorkerGuardActions(workerData.guard?.recent_actions),
       });
       setFetchedAt(new Date().toISOString());
 
@@ -419,6 +484,39 @@ export default function DashboardPage() {
       } catch (e) {
         const message = e instanceof Error ? e.message : "未知错误";
         setWorkerActionMessage(`${action === "start" ? "启动" : "停机"}失败：${message}`);
+      } finally {
+        setWorkerActionLoadingKey("");
+      }
+    },
+    [loadDashboard, workerActionLoadingKey]
+  );
+
+  const handleRunWorkerGuard = useCallback(
+    async (apply: boolean) => {
+      const loadingKey = apply ? "guard:apply" : "guard:preview";
+      if (workerActionLoadingKey) return;
+      setWorkerActionLoadingKey(loadingKey);
+      setWorkerActionMessage("");
+      try {
+        const res = await fetchWithAuth(`${API_BASE}/api/admin/system/worker-guard/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apply }),
+        });
+        let payload: { message?: string; error?: string } = {};
+        try {
+          payload = (await res.json()) as { message?: string; error?: string };
+        } catch {
+          payload = {};
+        }
+        if (!res.ok) {
+          throw new Error((payload.error || "").trim() || `HTTP ${res.status}`);
+        }
+        setWorkerActionMessage((payload.message || "Worker Guard 已执行").trim());
+        await loadDashboard();
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "未知错误";
+        setWorkerActionMessage(`执行 guard 失败：${message}`);
       } finally {
         setWorkerActionLoadingKey("");
       }
@@ -705,6 +803,22 @@ export default function DashboardPage() {
             >
               {workerActionLoadingKey === "stop:all" ? "停机中..." : "一键停机 Worker"}
             </button>
+            <button
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleRunWorkerGuard(false)}
+              disabled={workerActionLoadingKey !== "" || !workerHealth.guardEnabled}
+              title={workerHealth.guardEnabled ? "只做巡检预览，不执行动作" : "Guard 未启用"}
+            >
+              {workerActionLoadingKey === "guard:preview" ? "巡检中..." : "巡检预览"}
+            </button>
+            <button
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm transition-all hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleRunWorkerGuard(true)}
+              disabled={workerActionLoadingKey !== "" || !workerHealth.guardEnabled}
+              title={workerHealth.guardEnabled ? "执行一次自动巡检策略" : "Guard 未启用"}
+            >
+              {workerActionLoadingKey === "guard:apply" ? "执行中..." : "执行自动巡检"}
+            </button>
           </div>
         </div>
 
@@ -752,6 +866,24 @@ export default function DashboardPage() {
             {workerHealth.alerts.join("；")}
           </div>
         )}
+
+        <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50/70 px-3 py-3 text-xs text-indigo-800">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-semibold">Worker Guard</span>
+            <span>开关：{workerHealth.guardEnabled ? "开启" : "关闭"}</span>
+            <span>自动暂停：{workerHealth.guardAutoPause ? "开启" : "关闭"}</span>
+            <span>健康页自动执行：{workerHealth.guardAutoRun ? "开启" : "关闭"}</span>
+            <span>最近执行：{workerHealth.guardLastRunAt ? formatDateTime(workerHealth.guardLastRunAt) : "-"}</span>
+          </div>
+          <div className="mt-1">
+            本次建议 {workerHealth.guardRecommended.length} 项，已执行 {workerHealth.guardApplied.length} 项
+          </div>
+          {workerHealth.guardRecent.length > 0 && (
+            <div className="mt-2 rounded-xl border border-indigo-100 bg-white px-2 py-2 text-[11px] text-indigo-700">
+              最近动作：{workerHealth.guardRecent.slice(0, 3).map((item) => `${item.label || item.role}:${item.status}`).join("；")}
+            </div>
+          )}
+        </div>
 
         {workerHealth.lanes.length > 0 && (
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
@@ -971,6 +1103,25 @@ function normalizeWorkerHealth(value?: string): "green" | "yellow" | "red" | "un
     return normalized;
   }
   return "unknown";
+}
+
+function mapWorkerGuardActions(raw: unknown): DashboardWorkerGuardAction[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DashboardWorkerGuardAction[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as WorkerGuardActionResponse;
+    out.push({
+      role: (record.role || "").trim().toLowerCase() || "unknown",
+      label: (record.label || "").trim(),
+      queueName: (record.queue_name || "").trim(),
+      trigger: (record.trigger || "").trim(),
+      status: (record.status || "").trim().toLowerCase(),
+      message: (record.message || "").trim(),
+      createdAt: (record.created_at || "").trim(),
+    });
+  }
+  return out;
 }
 
 function TrendMiniBars({
