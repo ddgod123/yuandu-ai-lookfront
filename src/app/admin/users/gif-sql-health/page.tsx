@@ -682,6 +682,7 @@ export default function AdminGIFSQLHealthPage() {
               const role = String(lane.role || "").toLowerCase() || "unknown";
               const startKey = `start:${role}`;
               const stopKey = `stop:${role}`;
+              const started = Number(lane.servers_active || 0) > 0 || Number(lane.servers_total || 0) > 0;
               return (
                 <div key={`${role}-${lane.queue_name || lane.queue?.name || ""}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex items-center justify-between gap-2">
@@ -689,9 +690,16 @@ export default function AdminGIFSQLHealthPage() {
                       <div className="text-sm font-semibold text-slate-900">{lane.label || role.toUpperCase()} Worker</div>
                       <div className="text-[11px] text-slate-500">{lane.queue?.name || lane.queue_name || "-"}</div>
                     </div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${laneMeta.className}`}>
-                      {laneMeta.label}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {!started ? (
+                        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                          未启动
+                        </span>
+                      ) : null}
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${laneMeta.className}`}>
+                        {laneMeta.label}
+                      </span>
+                    </div>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-slate-600">
                     <div>在线：{formatInt(lane.servers_active)} / {formatInt(lane.servers_total)}</div>

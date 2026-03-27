@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 
@@ -61,7 +62,7 @@ type ApiErrorPayload = {
 };
 
 const PAGE_SIZE = 30;
-const FORMAT_OPTIONS = ["all", "gif", "jpg", "png", "webp", "mp4", "live"] as const;
+type FormatOption = "all" | "gif" | "jpg" | "png" | "webp" | "mp4" | "live";
 const SOURCE_READ_REASON_OPTIONS = [
   "all",
   "source_video_not_found",
@@ -103,6 +104,17 @@ const PRIMARY_BUTTON_CLASS =
   "inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-emerald-600";
 const SECONDARY_BUTTON_CLASS =
   "inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50";
+
+function resolveLockedFormatByPath(pathname?: string): FormatOption | null {
+  const current = (pathname || "").split("?")[0].replace(/\/+$/, "");
+  if (current.endsWith("/admin/users/highlight-jobs/gif")) return "gif";
+  if (current.endsWith("/admin/users/highlight-jobs/png")) return "png";
+  if (current.endsWith("/admin/users/highlight-jobs/jpg")) return "jpg";
+  if (current.endsWith("/admin/users/highlight-jobs/webp")) return "webp";
+  if (current.endsWith("/admin/users/highlight-jobs/live")) return "live";
+  if (current.endsWith("/admin/users/highlight-jobs/mp4")) return "mp4";
+  return null;
+}
 
 function formatTime(value?: string) {
   if (!value) return "-";
@@ -328,6 +340,8 @@ function KpiCard({
 }
 
 export default function AdminHighlightJobsPage() {
+  const pathname = usePathname();
+  const lockedFormat = useMemo(() => resolveLockedFormatByPath(pathname), [pathname]);
   const [items, setItems] = useState<AdminVideoJobItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -348,6 +362,13 @@ export default function AdminHighlightJobsPage() {
   const [sourceReadReason, setSourceReadReason] = useState("all");
   const [auditSignal, setAuditSignal] = useState("all");
   const [query, setQuery] = useState("");
+  const effectiveFormat = lockedFormat || format;
+
+  useEffect(() => {
+    if (!lockedFormat) return;
+    if (format !== lockedFormat) setFormat(lockedFormat);
+    if (draftFormat !== lockedFormat) setDraftFormat(lockedFormat);
+  }, [draftFormat, format, lockedFormat]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
@@ -361,7 +382,7 @@ export default function AdminHighlightJobsPage() {
       });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (status !== "all") params.set("status", status);
-      if (format !== "all") params.set("format", format);
+      if (effectiveFormat !== "all") params.set("format", effectiveFormat);
       if (sourceReadReason !== "all") params.set("source_read_reason", sourceReadReason);
       if (auditSignal !== "all") params.set("audit_signal", auditSignal);
       if (query.trim()) params.set("q", query.trim());
@@ -375,7 +396,7 @@ export default function AdminHighlightJobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [auditSignal, format, page, query, sourceReadReason, status, userID]);
+  }, [auditSignal, effectiveFormat, page, query, sourceReadReason, status, userID]);
 
   useEffect(() => {
     void loadList();
@@ -384,12 +405,12 @@ export default function AdminHighlightJobsPage() {
   const applyFilters = useCallback(() => {
     setUserID(draftUserID.trim());
     setStatus(draftStatus);
-    setFormat(draftFormat);
+    setFormat(lockedFormat || draftFormat);
     setSourceReadReason(draftSourceReadReason);
     setAuditSignal(draftAuditSignal);
     setQuery(draftQuery.trim());
     setPage(1);
-  }, [draftAuditSignal, draftFormat, draftQuery, draftSourceReadReason, draftStatus, draftUserID]);
+  }, [draftAuditSignal, draftFormat, draftQuery, draftSourceReadReason, draftStatus, draftUserID, lockedFormat]);
 
   const stats = useMemo(() => {
     let running = 0;
@@ -458,8 +479,12 @@ export default function AdminHighlightJobsPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="视频任务列表"
-        description="一级页面：按视频任务展示列表。点击任务进入二级详情页查看 AI1/AI2/评分/AI3 全流程。"
+        title={lockedFormat ? `视频任务列表 · ${lockedFormat.toUpperCase()}` : "视频任务列表"}
+        description={
+          lockedFormat
+            ? `当前页面已锁定 ${lockedFormat.toUpperCase()} 格式任务。`
+            : "一级页面：按视频任务展示列表。点击任务进入二级详情页查看 AI1/AI2/评分/AI3 全流程。"
+        }
         actions={
           <button
             className={SECONDARY_BUTTON_CLASS}
@@ -500,17 +525,12 @@ export default function AdminHighlightJobsPage() {
           </label>
           <label className="space-y-1">
             <span className="text-[11px] font-medium text-slate-500">输出格式</span>
-            <select
-              value={draftFormat}
-              onChange={(e) => setDraftFormat(e.target.value)}
-              className={SELECT_CLASS}
-            >
-              {FORMAT_OPTIONS.map((item) => (
-                <option key={item} value={item}>
-                  格式：{item}
-                </option>
-              ))}
-            </select>
+            <div className={`${SELECT_CLASS} flex items-center justify-between gap-2`}>
+              <span>格式：{lockedFormat || "all"}</span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                {lockedFormat ? "锁定" : "按菜单分页面"}
+              </span>
+            </div>
           </label>
           <label className="space-y-1">
             <span className="text-[11px] font-medium text-slate-500">可读性原因</span>

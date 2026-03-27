@@ -25,12 +25,18 @@ const NAV = [
   {
     title: "用户创作",
     items: [
-      { label: "创作任务", href: "/admin/users/video-jobs" },
+      { label: "创作任务总览", href: "/admin/users/video-jobs" },
       { label: "反馈链路完整性", href: "/admin/users/feedback-integrity?format=all" },
       { label: "样本基线对比", href: "/admin/users/gif-baselines" },
       { label: "SQL巡检(GIF)", href: "/admin/users/gif-sql-health" },
       { label: "任务巡检", href: "/admin/users/video-job-health" },
-      { label: "视频任务列表", href: "/admin/users/highlight-jobs" },
+      { label: "视频任务总览", href: "/admin/users/highlight-jobs" },
+      { label: "视频任务GIF列表", href: "/admin/users/highlight-jobs/gif" },
+      { label: "视频任务PNG列表", href: "/admin/users/highlight-jobs/png" },
+      { label: "视频任务JPG列表", href: "/admin/users/highlight-jobs/jpg" },
+      { label: "视频任务WebP列表", href: "/admin/users/highlight-jobs/webp" },
+      { label: "视频任务Live列表", href: "/admin/users/highlight-jobs/live" },
+      { label: "视频任务MP4列表", href: "/admin/users/highlight-jobs/mp4" },
       { label: "视频转图GIF质量", href: "/admin/settings/video-quality/gif" },
       { label: "视频转图PNG质量", href: "/admin/settings/video-quality/png" },
       { label: "全局阈值设置", href: "/admin/users/global-thresholds" },
@@ -103,10 +109,29 @@ function normalizePath(input: string) {
   return trimmed || "/";
 }
 
-function isPathActive(pathname: string, href: string) {
+function pathMatchScore(pathname: string, href: string) {
   const current = normalizePath(pathname);
   const target = normalizePath(href);
-  return current === target || current.startsWith(`${target}/`);
+  if (current === target) {
+    return target.length + 10_000; // exact match always wins
+  }
+  if (current.startsWith(`${target}/`)) {
+    return target.length;
+  }
+  return -1;
+}
+
+function resolveBestActiveItem(pathname: string, items: Array<{ href: string }>) {
+  let bestHref = "";
+  let bestScore = -1;
+  for (const item of items) {
+    const score = pathMatchScore(pathname, item.href);
+    if (score > bestScore) {
+      bestScore = score;
+      bestHref = item.href;
+    }
+  }
+  return bestScore >= 0 ? bestHref : "";
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -127,12 +152,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   );
 
   const currentLabel = useMemo(() => {
+    let bestLabel = "管理后台";
+    let bestScore = -1;
     for (const group of nav) {
       for (const item of group.items) {
-        if (isPathActive(pathname, item.href)) return item.label;
+        const score = pathMatchScore(pathname, item.href);
+        if (score > bestScore) {
+          bestScore = score;
+          bestLabel = item.label;
+        }
       }
     }
-    return "管理后台";
+    return bestLabel;
   }, [pathname, nav]);
 
   useEffect(() => {
@@ -192,7 +223,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <nav className="scrollbar-hide flex-1 space-y-5 overflow-y-auto px-6 py-2">
           {nav.map((group) => {
             const isCollapsed = collapsedGroups[group.title];
-            const groupActive = group.items.some((item) => isPathActive(pathname, item.href));
+            const groupActiveHref = resolveBestActiveItem(pathname, group.items);
+            const groupActive = groupActiveHref !== "";
             return (
               <div key={group.title}>
                 <button 
@@ -214,7 +246,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 
                 <div className={`space-y-1 transition-all duration-300 overflow-hidden ${isCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
                   {group.items.map((item) => {
-                    const active = isPathActive(pathname, item.href);
+                    const active = normalizePath(item.href) === normalizePath(groupActiveHref);
                     return (
                       <button
                         key={item.href}

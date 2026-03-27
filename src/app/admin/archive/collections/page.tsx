@@ -2,7 +2,6 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import SectionHeader from "@/app/admin/_components/SectionHeader";
 import Link from "next/link";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 import { 
@@ -22,7 +21,8 @@ import {
   Star,
   ArrowUpCircle,
   List,
-  Download
+  Download,
+  ListFilter
 } from "lucide-react";
 
 type Collection = {
@@ -98,37 +98,8 @@ type TagSection = {
   tags: Tag[];
 };
 
-type CollectionIPStatItem = {
-  ip_id?: number | null;
-  ip_name: string;
-  count: number;
-};
-
-type CollectionIPStatsResponse = {
-  total: number;
-  items: CollectionIPStatItem[];
-};
-
-type CollectionIPAuditLogItem = {
-  id: number;
-  admin_id: number;
-  admin_name?: string;
-  collection_id: number;
-  collection_title?: string;
-  old_ip_id?: number | null;
-  old_ip_name?: string;
-  new_ip_id?: number | null;
-  new_ip_name?: string;
-  created_at: string;
-};
-
-type CollectionIPAuditLogsResponse = {
-  total: number;
-  items: CollectionIPAuditLogItem[];
-};
-
 const FILTER_SELECT_CLASS =
-  "h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+  "h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
 const TOOLBAR_CARD_CLASS = "flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5";
 
 export default function Page() {
@@ -142,16 +113,10 @@ export default function Page() {
   const [selectedChildId, setSelectedChildId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured">("all");
-  const [sampleFilter, setSampleFilter] = useState<"all" | "sample">("all");
-  const [selectedIPFilter, setSelectedIPFilter] = useState<number>(0);
+  const [listFilter, setListFilter] = useState<"all" | "featured" | "sample" | "public" | "private">("all");
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [loadingIPStats, setLoadingIPStats] = useState(false);
-  const [loadingIPAuditLogs, setLoadingIPAuditLogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ipStats, setIPStats] = useState<CollectionIPStatItem[]>([]);
-  const [ipAuditLogs, setIPAuditLogs] = useState<CollectionIPAuditLogItem[]>([]);
 
   const [collectionEditOpen, setCollectionEditOpen] = useState(false);
   const [collectionEditing, setCollectionEditing] = useState<Collection | null>(null);
@@ -174,6 +139,8 @@ export default function Page() {
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<number[]>([]);
   const [batchSampleSaving, setBatchSampleSaving] = useState(false);
   const [batchIPSaving, setBatchIPSaving] = useState(false);
+  const [batchVisibilitySaving, setBatchVisibilitySaving] = useState(false);
+  const [batchTargetVisibility, setBatchTargetVisibility] = useState<"public" | "private">("private");
   const [batchTargetIPId, setBatchTargetIPId] = useState<number>(0);
   const [exportingSamples, setExportingSamples] = useState(false);
 
@@ -383,9 +350,7 @@ export default function Page() {
     sizeValue = pageSize,
     topValue = selectedTopId,
     childValue = selectedChildId,
-    featuredValue = featuredFilter,
-    sampleValue = sampleFilter,
-    ipFilterValue = selectedIPFilter
+    listFilterValue = listFilter
   ) => {
     setLoading(true);
     setError(null);
@@ -406,16 +371,12 @@ export default function Page() {
           query.set("category_id", String(topValue));
         }
       }
-      if (featuredValue === "featured") {
+      if (listFilterValue === "featured") {
         query.set("is_featured", "1");
-      }
-      if (sampleValue === "sample") {
+      } else if (listFilterValue === "sample") {
         query.set("is_sample", "1");
-      }
-      if (ipFilterValue === -1) {
-        query.set("ip_id", "0");
-      } else if (ipFilterValue > 0) {
-        query.set("ip_id", String(ipFilterValue));
+      } else if (listFilterValue === "public" || listFilterValue === "private") {
+        query.set("visibility", listFilterValue);
       }
       const res = await fetchWithAuth(`${API_BASE}/api/collections?${query.toString()}`);
       if (!res.ok) throw new Error(await res.text());
@@ -428,63 +389,6 @@ export default function Page() {
       setError(message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadCollectionIPStats = async (
-    topValue = selectedTopId,
-    childValue = selectedChildId,
-    featuredValue = featuredFilter,
-    sampleValue = sampleFilter
-  ) => {
-    setLoadingIPStats(true);
-    try {
-      const query = new URLSearchParams();
-      if (childValue) {
-        query.set("category_id", String(childValue));
-      } else if (topValue) {
-        const children = childCategoryMap.get(topValue) || [];
-        if (children.length) {
-          query.set(
-            "category_ids",
-            children.map((item) => item.id).join(",")
-          );
-        } else {
-          query.set("category_id", String(topValue));
-        }
-      }
-      if (featuredValue === "featured") {
-        query.set("is_featured", "1");
-      }
-      if (sampleValue === "sample") {
-        query.set("is_sample", "1");
-      }
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/ip-stats?${query.toString()}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as CollectionIPStatsResponse;
-      setIPStats(Array.isArray(data.items) ? data.items : []);
-    } catch {
-      setIPStats([]);
-    } finally {
-      setLoadingIPStats(false);
-    }
-  };
-
-  const loadCollectionIPAuditLogs = async (limit = 20) => {
-    setLoadingIPAuditLogs(true);
-    try {
-      const query = new URLSearchParams();
-      query.set("limit", String(limit));
-      const res = await fetchWithAuth(
-        `${API_BASE}/api/admin/collections/ip-audit-logs?${query.toString()}`
-      );
-      if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as CollectionIPAuditLogsResponse;
-      setIPAuditLogs(Array.isArray(data.items) ? data.items : []);
-    } catch {
-      setIPAuditLogs([]);
-    } finally {
-      setLoadingIPAuditLogs(false);
     }
   };
 
@@ -537,20 +441,14 @@ export default function Page() {
     loadIps();
     loadTags();
     loadTagGroups();
-    loadCollectionIPAuditLogs(20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 仅根据筛选条件和分页变化拉取列表
   useEffect(() => {
-    loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter, selectedIPFilter);
+    loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter, selectedIPFilter, childCategoryMap]);
-
-  useEffect(() => {
-    loadCollectionIPStats(selectedTopId, selectedChildId, featuredFilter, sampleFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTopId, selectedChildId, featuredFilter, sampleFilter, childCategoryMap]);
+  }, [page, pageSize, selectedTopId, selectedChildId, listFilter, childCategoryMap]);
 
   useEffect(() => {
     setSelectedCollectionIds((prev) =>
@@ -644,7 +542,7 @@ export default function Page() {
         }
       );
       if (!res.ok) throw new Error(await res.text());
-      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
       setCollectionEditOpen(false);
       setCollectionEditing(null);
     } catch (err: unknown) {
@@ -672,7 +570,7 @@ export default function Page() {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
       setSelectedCollectionIds([]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "批量更新样本状态失败";
@@ -704,15 +602,43 @@ export default function Page() {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      await loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
-      await loadCollectionIPStats(selectedTopId, selectedChildId, featuredFilter, sampleFilter);
-      await loadCollectionIPAuditLogs(20);
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
       setSelectedCollectionIds([]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "批量设置IP失败";
       setError(message);
     } finally {
       setBatchIPSaving(false);
+    }
+  };
+
+  const batchUpdateVisibility = async (visibility: "public" | "private") => {
+    if (!selectedCollectionIds.length || batchVisibilitySaving) return;
+    const visibilityLabel = visibility === "public" ? "公开（上架）" : "私有（下架）";
+    const confirmed = window.confirm(
+      `确认批量设置可见性为：${visibilityLabel}？\n已选合集：${selectedCollectionIds.length} 条`
+    );
+    if (!confirmed) return;
+
+    setBatchVisibilitySaving(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/batch-visibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection_ids: selectedCollectionIds,
+          visibility,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
+      setSelectedCollectionIds([]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "批量设置可见性失败";
+      setError(message);
+    } finally {
+      setBatchVisibilitySaving(false);
     }
   };
 
@@ -767,7 +693,7 @@ export default function Page() {
       if (nextPage !== page) {
         setPage(nextPage);
       }
-      await loadCollections(nextPage, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter);
+      await loadCollections(nextPage, pageSize, selectedTopId, selectedChildId, listFilter);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "删除失败";
       setError(message);
@@ -791,7 +717,7 @@ export default function Page() {
       if (coverUrlMap[collectionCover]) return;
       try {
         const res = await fetchWithAuth(
-          `${API_BASE}/api/storage/url?key=${encodeURIComponent(collectionCover)}`
+          `${API_BASE}/api/storage/url?key=${encodeURIComponent(collectionCover)}&style=cover_static`
         );
         if (!res.ok) return;
         const data = (await res.json()) as { url?: string };
@@ -826,11 +752,21 @@ export default function Page() {
         next_marker: string;
         has_next: boolean;
       };
-      setCoverResults((prev) => (append ? [...prev, ...data.items] : data.items));
+      const normalizedItems = (data.items || []).map((item) => {
+        const rawUrl = item.url || "";
+        if (!rawUrl) return item;
+        if (/\.(mp4|webm)(?:[?#]|$)/i.test(rawUrl)) return item;
+        const staticUrl = buildStaticPreview(rawUrl);
+        return {
+          ...item,
+          url: staticUrl || rawUrl,
+        };
+      });
+      setCoverResults((prev) => (append ? [...prev, ...normalizedItems] : normalizedItems));
       setCoverMarker(data.next_marker || "");
       setCoverHasNext(data.has_next);
       const map: Record<string, string> = {};
-      for (const item of data.items || []) {
+      for (const item of normalizedItems) {
         if (item.url) map[item.key] = item.url;
       }
       if (Object.keys(map).length > 0) {
@@ -846,25 +782,8 @@ export default function Page() {
 
   return (
     <div className="space-y-6 pb-6">
-      <SectionHeader
-        title="表情包合集"
-        description="管理全站表情包合集，支持分类筛选、推荐置顶及批量操作。"
-        actions={
-          <button
-            className="group inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 disabled:opacity-60"
-            onClick={() =>
-              loadCollections(page, pageSize, selectedTopId, selectedChildId, featuredFilter, sampleFilter)
-            }
-            disabled={loading}
-          >
-            <RefreshCw size={16} className={`transition-transform ${loading ? "animate-spin" : "group-hover:rotate-180"}`} />
-            {loading ? "正在同步..." : "刷新数据"}
-          </button>
-        }
-      />
-
       {error && (
-        <div className="flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-bold text-red-600 animate-in fade-in slide-in-from-top-2">
+        <div className="flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-bold text-red-600">
           <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] text-white">!</div>
           {error}
         </div>
@@ -872,7 +791,7 @@ export default function Page() {
 
       <div className="rounded-[2.5rem] border border-slate-100 bg-white p-6 shadow-sm">
         {/* 筛选区域 */}
-        <div className="mb-6 rounded-3xl border border-slate-100 bg-slate-50/40 p-6 shadow-sm transition-all hover:shadow-md">
+        <div className="sticky top-4 z-30 mb-6 w-full rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="space-y-6">
             <div>
               <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
@@ -885,9 +804,9 @@ export default function Page() {
                     setSelectedChildId(null);
                     setPage(1);
                   }}
-                  className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                  className={`rounded-xl px-5 py-2 text-xs font-black ${
                     selectedTopId === null
-                      ? "bg-slate-900 text-white shadow-lg shadow-slate-200 scale-105"
+                      ? "bg-slate-900 text-white"
                       : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                   }`}
                 >
@@ -904,9 +823,9 @@ export default function Page() {
                         setSelectedChildId(null);
                         setPage(1);
                       }}
-                      className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                      className={`rounded-xl px-5 py-2 text-xs font-black ${
                         active
-                          ? "bg-slate-900 text-white shadow-lg shadow-slate-200 scale-105"
+                          ? "bg-slate-900 text-white"
                           : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                       }`}
                     >
@@ -927,9 +846,9 @@ export default function Page() {
                     setSelectedChildId(null);
                     setPage(1);
                   }}
-                  className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                  className={`rounded-xl px-5 py-2 text-xs font-black ${
                     selectedTopId && selectedChildId === null
-                      ? "bg-emerald-500 text-white shadow-lg shadow-emerald-100 scale-105"
+                      ? "bg-emerald-500 text-white"
                       : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                   }`}
                 >
@@ -945,9 +864,9 @@ export default function Page() {
                         setSelectedChildId(item.id);
                         setPage(1);
                       }}
-                      className={`rounded-xl px-5 py-2 text-xs font-black transition-all ${
+                      className={`rounded-xl px-5 py-2 text-xs font-black ${
                         active
-                          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-100 scale-105"
+                          ? "bg-emerald-500 text-white"
                           : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                       }`}
                     >
@@ -978,57 +897,21 @@ export default function Page() {
           <div className="flex flex-wrap items-center gap-4">
             <div className={TOOLBAR_CARD_CLASS}>
               <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <Star size={14} /> 推荐筛选
+                <ListFilter size={14} /> 筛选
               </div>
               <select
                 className={FILTER_SELECT_CLASS}
-                value={featuredFilter}
+                value={listFilter}
                 onChange={(e) => {
                   setPage(1);
-                  setFeaturedFilter(e.target.value as "all" | "featured");
+                  setListFilter(e.target.value as "all" | "featured" | "sample" | "public" | "private");
                 }}
               >
-                <option value="all">显示全部</option>
-                <option value="featured">仅看推荐</option>
-              </select>
-            </div>
-
-            <div className={TOOLBAR_CARD_CLASS}>
-              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <TagIcon size={14} /> 样本筛选
-              </div>
-              <select
-                className={FILTER_SELECT_CLASS}
-                value={sampleFilter}
-                onChange={(e) => {
-                  setPage(1);
-                  setSampleFilter(e.target.value as "all" | "sample");
-                }}
-              >
-                <option value="all">显示全部</option>
-                <option value="sample">仅看样本</option>
-              </select>
-            </div>
-
-            <div className={TOOLBAR_CARD_CLASS}>
-              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <User size={14} /> IP筛选
-              </div>
-              <select
-                className={FILTER_SELECT_CLASS}
-                value={selectedIPFilter}
-                onChange={(e) => {
-                  setPage(1);
-                  setSelectedIPFilter(Number(e.target.value));
-                }}
-              >
-                <option value={0}>全部IP</option>
-                <option value={-1}>未绑定IP</option>
-                {ips.map((ip) => (
-                  <option key={ip.id} value={ip.id}>
-                    {ip.name}
-                  </option>
-                ))}
+                <option value="all">全部合集</option>
+                <option value="public">仅公开合集</option>
+                <option value="private">仅私有合集</option>
+                <option value="featured">仅推荐合集</option>
+                <option value="sample">仅样本合集</option>
               </select>
             </div>
 
@@ -1052,7 +935,7 @@ export default function Page() {
 
             <button
               type="button"
-              className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={exportSampleCollections}
               disabled={exportingSamples}
             >
@@ -1060,59 +943,6 @@ export default function Page() {
               {exportingSamples ? "导出中..." : "导出样本CSV"}
             </button>
           </div>
-        </div>
-
-        <div className="mb-4 px-2">
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-400">
-            <User size={14} /> 按IP统计（当前筛选口径）
-          </div>
-          {loadingIPStats ? (
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">统计加载中...</div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setPage(1);
-                  setSelectedIPFilter(0);
-                }}
-                className={`rounded-xl border px-3 py-2 text-left transition ${
-                  selectedIPFilter === 0
-                    ? "border-emerald-300 bg-emerald-50"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                }`}
-              >
-                <div className="text-[11px] font-black text-slate-500">全部IP</div>
-                <div className="mt-1 text-base font-black text-slate-900">{total}</div>
-              </button>
-              {ipStats.map((item, idx) => {
-                const statIPID = typeof item.ip_id === "number" ? item.ip_id : null;
-                const isUnbound = statIPID === null || statIPID === 0;
-                const active =
-                  (isUnbound && selectedIPFilter === -1) ||
-                  (!isUnbound && selectedIPFilter === statIPID);
-                if (idx >= 11) return null;
-                return (
-                  <button
-                    key={`${statIPID ?? "none"}-${idx}`}
-                    type="button"
-                    onClick={() => {
-                      setPage(1);
-                      setSelectedIPFilter(isUnbound ? -1 : (statIPID || 0));
-                    }}
-                    className={`rounded-xl border px-3 py-2 text-left transition ${
-                      active
-                        ? "border-emerald-300 bg-emerald-50"
-                        : "border-slate-200 bg-white hover:border-slate-300"
-                    }`}
-                  >
-                    <div className="truncate text-[11px] font-black text-slate-500">{item.ip_name}</div>
-                    <div className="mt-1 text-base font-black text-slate-900">{item.count}</div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-2 px-2">
@@ -1134,7 +964,7 @@ export default function Page() {
           </select>
           <button
             type="button"
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!selectedCollectionIds.length || batchIPSaving || batchTargetIPId <= 0}
             onClick={() => batchAssignIP(batchTargetIPId)}
           >
@@ -1142,7 +972,7 @@ export default function Page() {
           </button>
           <button
             type="button"
-            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!selectedCollectionIds.length || batchIPSaving}
             onClick={() => batchAssignIP(0)}
           >
@@ -1150,7 +980,7 @@ export default function Page() {
           </button>
           <button
             type="button"
-            className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!selectedCollectionIds.length || batchSampleSaving}
             onClick={() => batchUpdateSampleFlag(true)}
           >
@@ -1158,81 +988,29 @@ export default function Page() {
           </button>
           <button
             type="button"
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!selectedCollectionIds.length || batchSampleSaving}
             onClick={() => batchUpdateSampleFlag(false)}
           >
             批量取消样本
           </button>
-        </div>
-
-        <div className="mb-4 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div className="flex items-center gap-2 text-xs font-black text-slate-700">
-              <Clock size={14} className="text-slate-400" />
-              IP绑定操作日志（最近20条）
-            </div>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-50"
-              onClick={() => loadCollectionIPAuditLogs(20)}
-              disabled={loadingIPAuditLogs}
-            >
-              <RefreshCw size={12} className={loadingIPAuditLogs ? "animate-spin" : ""} />
-              刷新
-            </button>
-          </div>
-          {loadingIPAuditLogs ? (
-            <div className="px-4 py-4 text-xs text-slate-500">加载中...</div>
-          ) : ipAuditLogs.length === 0 ? (
-            <div className="px-4 py-4 text-xs text-slate-500">暂无日志</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
-                  <tr>
-                    <th className="px-4 py-2.5">时间</th>
-                    <th className="px-4 py-2.5">操作人</th>
-                    <th className="px-4 py-2.5">合集</th>
-                    <th className="px-4 py-2.5">变更</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {ipAuditLogs.map((item) => {
-                    const oldLabel =
-                      item.old_ip_id && item.old_ip_id > 0
-                        ? `${item.old_ip_name || "未知IP"} (#${item.old_ip_id})`
-                        : "未绑定";
-                    const newLabel =
-                      item.new_ip_id && item.new_ip_id > 0
-                        ? `${item.new_ip_name || "未知IP"} (#${item.new_ip_id})`
-                        : "未绑定";
-                    return (
-                      <tr key={item.id} className="text-slate-700">
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
-                        </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          {item.admin_name || (item.admin_id ? `#${item.admin_id}` : "-")}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <div className="font-bold text-slate-800">#{item.collection_id}</div>
-                          <div className="max-w-[280px] truncate text-[11px] text-slate-500">
-                            {item.collection_title || "-"}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <span className="font-bold text-slate-700">{oldLabel}</span>
-                          <span className="mx-2 text-slate-400">→</span>
-                          <span className="font-bold text-emerald-700">{newLabel}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <select
+            className="h-8 min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
+            value={batchTargetVisibility}
+            onChange={(e) => setBatchTargetVisibility(e.target.value as "public" | "private")}
+            disabled={!selectedCollectionIds.length || batchVisibilitySaving}
+          >
+            <option value="private">可见性：下架（private）</option>
+            <option value="public">可见性：上架（public）</option>
+          </select>
+          <button
+            type="button"
+            className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchVisibilitySaving}
+            onClick={() => batchUpdateVisibility(batchTargetVisibility)}
+          >
+            {batchVisibilitySaving ? "处理中..." : "批量设置可见性"}
+          </button>
         </div>
 
         {/* 表格区域 */}
@@ -1262,7 +1040,7 @@ export default function Page() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {collections.map((item) => (
-                <tr key={item.id} className="group transition-colors hover:bg-slate-50/50">
+                <tr key={item.id}>
                   <td className="px-4 py-6 text-center">
                     <input
                       type="checkbox"
@@ -1274,18 +1052,17 @@ export default function Page() {
                   <td className="px-6 py-6 text-xs font-bold text-slate-400">#{item.id}</td>
                   <td className="px-6 py-6">
                     <div className="max-w-[200px] space-y-1">
-                      <div className="truncate text-sm font-black text-slate-900 group-hover:text-emerald-600 transition-colors">{item.title}</div>
+                      <div className="truncate text-sm font-black text-slate-900">{item.title}</div>
                       <div className="truncate text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{item.slug}</div>
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="relative h-16 w-16 overflow-hidden rounded-2xl border-2 border-white bg-slate-100 shadow-sm ring-1 ring-slate-100 transition-transform group-hover:scale-110 group-hover:rotate-3">
+                    <div className="relative h-16 w-16 overflow-hidden rounded-2xl border-2 border-white bg-slate-100 shadow-sm ring-1 ring-slate-100">
                       {resolveCoverUrl(item) ? (
                         <CoverThumb
                           key={`${item.id}-${item.cover_url || ""}-${item.qiniu_prefix || ""}`}
                           url={resolveCoverUrl(item)}
                           alt={item.title}
-                          coverKey={item.cover_url || ""}
                           qiniuPrefix={item.qiniu_prefix}
                         />
                       ) : (
@@ -1359,7 +1136,7 @@ export default function Page() {
                   <td className="px-6 py-6">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <div className={`h-1.5 w-1.5 rounded-full ${item.status === 'active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                        <div className={`h-1.5 w-1.5 rounded-full ${item.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                         <span className={`text-[11px] font-black uppercase ${item.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
                           {item.status}
                         </span>
@@ -1382,26 +1159,26 @@ export default function Page() {
                   <td className="px-6 py-6 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm transition-all hover:border-emerald-100 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm hover:border-emerald-100 hover:bg-emerald-50 hover:text-emerald-600"
                         onClick={() => openCollectionEdit(item)}
                         title="编辑合集"
                       >
                         <Edit3 size={16} />
                       </button>
                       <Link
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm transition-all hover:border-blue-100 hover:bg-blue-50 hover:text-blue-600 active:scale-90"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm hover:border-blue-100 hover:bg-blue-50 hover:text-blue-600"
                         href={`/admin/archive/collections/${item.id}/emojis`}
                         title="编辑表情"
                       >
                         <ImageIcon size={16} />
                       </Link>
                       <button
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-rose-400 shadow-sm transition-all hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 active:scale-90 disabled:opacity-40"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-rose-400 shadow-sm hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
                         onClick={() => hardDeleteCollection(item)}
                         disabled={deletingCollectionId === item.id}
                         title="删除合集"
                       >
-                        {deletingCollectionId === item.id ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                        {deletingCollectionId === item.id ? <RefreshCw size={16} /> : <Trash2 size={16} />}
                       </button>
                     </div>
                   </td>
@@ -1436,20 +1213,20 @@ export default function Page() {
           
           <div className="flex items-center gap-3">
             <button
-              className="group flex h-11 items-center gap-2 rounded-2xl border-2 border-slate-100 bg-white px-6 text-sm font-black text-slate-600 transition-all hover:border-slate-200 hover:bg-slate-50 disabled:opacity-40 active:scale-95"
+              className="flex h-11 items-center gap-2 rounded-2xl border-2 border-slate-100 bg-white px-6 text-sm font-black text-slate-600 hover:border-slate-200 hover:bg-slate-50 disabled:opacity-40"
               onClick={handlePrev}
               disabled={page <= 1}
             >
-              <ChevronDown size={18} className="rotate-90 transition-transform group-hover:-translate-x-1" />
+              <ChevronDown size={18} className="rotate-90" />
               上一页
             </button>
             <button
-              className="group flex h-11 items-center gap-2 rounded-2xl border-2 border-slate-100 bg-white px-6 text-sm font-black text-slate-600 transition-all hover:border-slate-200 hover:bg-slate-50 disabled:opacity-40 active:scale-95"
+              className="flex h-11 items-center gap-2 rounded-2xl border-2 border-slate-100 bg-white px-6 text-sm font-black text-slate-600 hover:border-slate-200 hover:bg-slate-50 disabled:opacity-40"
               onClick={handleNext}
               disabled={page >= totalPages}
             >
               下一页
-              <ChevronDown size={18} className="-rotate-90 transition-transform group-hover:translate-x-1" />
+              <ChevronDown size={18} className="-rotate-90" />
             </button>
           </div>
         </div>
@@ -1562,8 +1339,8 @@ export default function Page() {
                     key={`${collectionEditing?.id || 0}-${collectionCover}-${coverPreviewUrl}`}
                     url={coverPreviewUrl}
                     alt="cover"
-                    coverKey={collectionCover}
                     qiniuPrefix={collectionEditing?.qiniu_prefix}
+                    allowPrefixFallback
                   />
                 </div>
               )}
@@ -1617,11 +1394,7 @@ export default function Page() {
                               playsInline
                             />
                           ) : (
-                            <img
-                              src={item.url}
-                              alt={item.key}
-                              className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                            />
+                            <img src={item.url} alt={item.key} className="h-full w-full object-cover" />
                           )
                         ) : (
                           <span className="px-2 text-[10px] text-slate-500">
@@ -1741,7 +1514,7 @@ export default function Page() {
                             key={tag.id}
                             type="button"
                             onClick={() => toggleCollectionTag(tag.id)}
-                            className={`rounded-full border px-3 py-1 text-xs transition ${
+                            className={`rounded-full border px-3 py-1 text-xs ${
                               active
                                 ? "border-slate-900 bg-slate-900 text-white"
                                 : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
@@ -1825,11 +1598,6 @@ function buildTree(categories: Category[]): TreeItem[] {
   return result;
 }
 
-function isAnimatedImage(value: string) {
-  const clean = (value || "").split("?")[0].split("#")[0].toLowerCase();
-  return clean.endsWith(".gif") || clean.endsWith(".webp");
-}
-
 function isImageFile(value: string) {
   const clean = (value || "").split("?")[0].split("#")[0].toLowerCase();
   return /\.(jpe?g|png|gif|webp)$/.test(clean);
@@ -1838,13 +1606,13 @@ function isImageFile(value: string) {
 function buildStaticPreview(url: string) {
   const val = (url || "").trim();
   if (!val.startsWith("http://") && !val.startsWith("https://")) return "";
+  if (val.includes("imageMogr2/")) return val;
   if (val.includes("token=") || val.includes("e=")) return "";
   const separator = val.includes("?") ? "&" : "?";
   return `${val}${separator}imageMogr2/thumbnail/!160x160r/gravity/Center/crop/160x160/format/webp`;
 }
 
-function buildCoverSources(url: string, key: string) {
-  const animated = isAnimatedImage(url) || isAnimatedImage(key);
+function buildCoverSources(url: string) {
   // 对于部分自签证书的 CDN（例如 cdn.smartrent.xin），优先使用 http，https 作为兜底
   const preferHttpDomains = ["cdn.smartrent.xin"];
   const normalize = (u: string) => {
@@ -1862,12 +1630,9 @@ function buildCoverSources(url: string, key: string) {
     }
   }
 
-  if (!animated) {
-    return { primary, fallback: "" };
-  }
   const staticUrl = buildStaticPreview(primary);
-  if (staticUrl && staticUrl !== primary) {
-    return { primary: staticUrl, fallback: primary };
+  if (staticUrl) {
+    return { primary: staticUrl, fallback: "" };
   }
   return { primary, fallback: "" };
 }
@@ -1875,33 +1640,32 @@ function buildCoverSources(url: string, key: string) {
 function CoverThumb({
   url,
   alt,
-  coverKey,
   qiniuPrefix,
+  allowPrefixFallback = false,
 }: {
   url: string;
   alt: string;
-  coverKey: string;
   qiniuPrefix?: string;
+  allowPrefixFallback?: boolean;
 }) {
   const { primary, fallback } = useMemo(
-    () => buildCoverSources(url, coverKey),
-    [url, coverKey]
+    () => buildCoverSources(url),
+    [url]
   );
   const [currentSrc, setCurrentSrc] = useState(primary);
   const [swapped, setSwapped] = useState(false);
-  const [usedFallback, setUsedFallback] = useState(false);
   const triedPrefix = useRef(false);
 
   useEffect(() => {
     triedPrefix.current = false;
     // 若 primary 为空但有前缀，主动拉取前缀首图
-    if (!primary && qiniuPrefix) {
+    if (!primary && qiniuPrefix && allowPrefixFallback) {
       triedPrefix.current = true;
       fetchFirstImageFromPrefix(qiniuPrefix).then((altUrl) => {
         if (altUrl) setCurrentSrc(altUrl);
       });
     }
-  }, [primary, qiniuPrefix]);
+  }, [primary, qiniuPrefix, allowPrefixFallback]);
 
   const handleError = () => {
     if (!currentSrc) return;
@@ -1917,13 +1681,12 @@ function CoverThumb({
         return;
       }
     }
-    if (fallback && !usedFallback) {
+    if (fallback) {
       setCurrentSrc(fallback);
       setSwapped(false);
-      setUsedFallback(true);
       return;
     }
-    if (!triedPrefix.current && qiniuPrefix) {
+    if (!triedPrefix.current && qiniuPrefix && allowPrefixFallback) {
       triedPrefix.current = true;
       fetchFirstImageFromPrefix(qiniuPrefix).then((altUrl) => {
         if (altUrl) {
@@ -1965,7 +1728,7 @@ async function fetchFirstImageFromPrefix(prefix: string): Promise<string | null>
     const hit = items.find((i) => isImg(i.key));
     if (!hit) return null;
     const urlRes = await fetchWithAuth(
-      `${API_BASE}/api/storage/url?key=${encodeURIComponent(hit.key)}`
+      `${API_BASE}/api/storage/url?key=${encodeURIComponent(hit.key)}&style=cover_static`
     );
     if (!urlRes.ok) return null;
     const urlData = (await urlRes.json()) as { url?: string };

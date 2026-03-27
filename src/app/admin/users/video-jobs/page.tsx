@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 
@@ -155,6 +156,46 @@ type AdminVideoJobAIGIFDirective = {
   created_at?: string;
 };
 
+type AdminVideoJobAIImageReview = {
+  id: number;
+  target_format?: string;
+  stage?: string;
+  recommendation?: string;
+  reviewed_outputs?: number;
+  deliver_count?: number;
+  reject_count?: number;
+  manual_review_count?: number;
+  hard_gate_reject_count?: number;
+  hard_gate_manual_review_count?: number;
+  candidate_budget?: number;
+  effective_duration_sec?: number;
+  quality_fallback?: boolean;
+  quality_selector_version?: string;
+  summary_note?: string;
+  summary?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+};
+
+type AdminVideoJobAI1Debug = {
+  requested_format?: string;
+  flow_mode?: string;
+  source_prompt?: string;
+  field_audit?: Array<{
+    stage?: string;
+    field_path?: string;
+    label?: string;
+    source?: string;
+    value?: unknown;
+    detail?: string;
+  }>;
+  input?: Record<string, unknown>;
+  model_request?: Record<string, unknown>;
+  model_response?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  trace?: Record<string, unknown>;
+};
+
 type AdminVideoJobDetailResponse = {
   job: AdminVideoJobItem;
   events?: AdminVideoJobEvent[];
@@ -164,6 +205,8 @@ type AdminVideoJobDetailResponse = {
   ai_gif_directives?: AdminVideoJobAIGIFDirective[];
   ai_gif_proposals?: AdminVideoJobAIGIFProposal[];
   ai_gif_reviews?: AdminVideoJobAIGIFReview[];
+  ai_image_reviews?: AdminVideoJobAIImageReview[];
+  ai1_debug?: AdminVideoJobAI1Debug;
   ai_gif_review_status_counts?: Record<string, number>;
   ai_gif_review_status_filter?: string[];
 };
@@ -954,6 +997,7 @@ const STAGE_LABEL: Record<string, string> = {
 };
 
 const FORMAT_FILTER_OPTIONS = ["all", "gif", "jpg", "png", "webp", "mp4", "live"] as const;
+type FormatFilterOption = (typeof FORMAT_FILTER_OPTIONS)[number];
 const ASSET_DOMAIN_FILTER_OPTIONS = ["all", "video", "archive", "admin", "ugc"] as const;
 const ASSET_DOMAIN_LABEL: Record<string, string> = {
   all: "全部",
@@ -963,6 +1007,32 @@ const ASSET_DOMAIN_LABEL: Record<string, string> = {
   ugc: "用户上传域",
 };
 const REVIEW_STATUS_FILTER_OPTIONS = ["all", "deliver", "keep_internal", "reject", "need_manual_review"] as const;
+const AI1_FIELD_AUDIT_SOURCE_OPTIONS = [
+  "all",
+  "user_input",
+  "user_action",
+  "video_probe",
+  "video_asset",
+  "developer_rule",
+  "system_route",
+  "system_runtime",
+  "model_output",
+  "system_validation",
+  "fallback",
+] as const;
+const AI1_FIELD_AUDIT_SOURCE_LABEL: Record<string, string> = {
+  all: "全部来源",
+  user_input: "用户输入",
+  user_action: "用户动作",
+  video_probe: "视频探针",
+  video_asset: "视频资产",
+  developer_rule: "开发规则",
+  system_route: "系统路由",
+  system_runtime: "系统运行态",
+  model_output: "模型输出",
+  system_validation: "系统校验",
+  fallback: "兜底",
+};
 const GIF_PIPELINE_STAGE_ORDER = ["briefing", "planning", "scoring", "reviewing"] as const;
 const GIF_PIPELINE_STAGE_LABEL: Record<string, string> = {
   briefing: "Briefing（AI1）",
@@ -1003,6 +1073,17 @@ const SMALL_BTN_EMERALD_CLASS =
   "inline-flex h-8 items-center rounded-lg border border-emerald-200 bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60";
 const SMALL_CHIP_BUTTON_CLASS =
   "inline-flex h-6 items-center rounded-full border border-slate-200 bg-white px-2 text-[11px] text-slate-600 transition hover:bg-slate-100";
+
+function resolveLockedVideoJobFormatByPath(pathname?: string): FormatFilterOption | null {
+  const current = (pathname || "").split("?")[0].replace(/\/+$/, "");
+  if (current.endsWith("/admin/users/video-jobs/gif")) return "gif";
+  if (current.endsWith("/admin/users/video-jobs/png")) return "png";
+  if (current.endsWith("/admin/users/video-jobs/jpg")) return "jpg";
+  if (current.endsWith("/admin/users/video-jobs/webp")) return "webp";
+  if (current.endsWith("/admin/users/video-jobs/mp4")) return "mp4";
+  if (current.endsWith("/admin/users/video-jobs/live")) return "live";
+  return null;
+}
 
 function quickFilterButtonClass(active: boolean, activeClass: string) {
   return `inline-flex h-8 items-center rounded-lg px-3 text-xs font-semibold transition ${
@@ -1160,6 +1241,52 @@ function reviewStatusBadgeClass(value?: string) {
   }
 }
 
+function normalizeImageReviewRecommendation(value?: string) {
+  const recommendation = (value || "").trim().toLowerCase();
+  switch (recommendation) {
+    case "deliver":
+      return "deliver";
+    case "deliver_with_fallback":
+      return "deliver_with_fallback";
+    case "need_manual_review":
+      return "need_manual_review";
+    case "reject":
+      return "reject";
+    default:
+      return recommendation || "";
+  }
+}
+
+function imageReviewRecommendationLabel(value?: string) {
+  switch (normalizeImageReviewRecommendation(value)) {
+    case "deliver":
+      return "deliver（可交付）";
+    case "deliver_with_fallback":
+      return "deliver_with_fallback（回退后可交付）";
+    case "need_manual_review":
+      return "need_manual_review（建议人工复核）";
+    case "reject":
+      return "reject（不建议交付）";
+    default:
+      return value || "-";
+  }
+}
+
+function imageReviewRecommendationBadgeClass(value?: string) {
+  switch (normalizeImageReviewRecommendation(value)) {
+    case "deliver":
+      return "bg-emerald-100 text-emerald-700";
+    case "deliver_with_fallback":
+      return "bg-cyan-100 text-cyan-700";
+    case "need_manual_review":
+      return "bg-amber-100 text-amber-700";
+    case "reject":
+      return "bg-rose-100 text-rose-700";
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
+}
+
 function formatTime(value?: string) {
   if (!value) return "-";
   const d = new Date(value);
@@ -1213,6 +1340,14 @@ function executionQueueLabel(queue: string) {
       return "GIF 专线";
     case "video_png":
       return "PNG 专线";
+    case "video_jpg":
+      return "JPG 专线";
+    case "video_webp":
+      return "WebP 专线";
+    case "video_live":
+      return "Live 专线";
+    case "video_mp4":
+      return "MP4 专线";
     case "media":
       return "通用队列";
     default:
@@ -1416,6 +1551,19 @@ function parseNumberValue(value: unknown): number | undefined {
     if (Number.isFinite(parsed)) return parsed;
   }
   return undefined;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function formatPrettyJSON(value: unknown) {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch {
+    return "{}";
+  }
 }
 
 function parseIntegerListInput(raw: string) {
@@ -1832,6 +1980,8 @@ function resolveSampleBaselineDiffDecision(
 }
 
 export default function AdminUserVideoJobsPage() {
+  const pathname = usePathname();
+  const lockedFormatFilter = useMemo(() => resolveLockedVideoJobFormatByPath(pathname), [pathname]);
   const [items, setItems] = useState<AdminVideoJobItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -1887,6 +2037,8 @@ export default function AdminUserVideoJobsPage() {
   const [auditChainError, setAuditChainError] = useState<string | null>(null);
   const [detailJobID, setDetailJobID] = useState<number | null>(null);
   const [detailReviewStatusFilter, setDetailReviewStatusFilter] = useState<(typeof REVIEW_STATUS_FILTER_OPTIONS)[number]>("all");
+  const [detailAI1FieldAuditSourceFilter, setDetailAI1FieldAuditSourceFilter] =
+    useState<(typeof AI1_FIELD_AUDIT_SOURCE_OPTIONS)[number]>("all");
   const [manualDecisionOutputIDInput, setManualDecisionOutputIDInput] = useState("");
   const [manualDecisionProposalIDInput, setManualDecisionProposalIDInput] = useState("");
   const [manualDecisionStatus, setManualDecisionStatus] = useState<(typeof REVIEW_STATUS_FILTER_OPTIONS)[number]>("deliver");
@@ -1905,6 +2057,18 @@ export default function AdminUserVideoJobsPage() {
   const [batchRerenderSubmitting, setBatchRerenderSubmitting] = useState(false);
   const [batchRerenderResult, setBatchRerenderResult] = useState<AdminVideoJobGIFBatchRerenderResponse | null>(null);
   const [exportingAuditChainCSV, setExportingAuditChainCSV] = useState(false);
+
+  const effectiveFormatFilter = lockedFormatFilter || formatFilter;
+
+  useEffect(() => {
+    if (!lockedFormatFilter) return;
+    if (formatFilter !== lockedFormatFilter) {
+      setFormatFilter(lockedFormatFilter);
+    }
+    if (draftFormatFilter !== lockedFormatFilter) {
+      setDraftFormatFilter(lockedFormatFilter);
+    }
+  }, [draftFormatFilter, formatFilter, lockedFormatFilter]);
 
   const removeToastNotice = useCallback((id: number) => {
     setToastNotices((prev) => prev.filter((item) => item.id !== id));
@@ -2036,7 +2200,7 @@ export default function AdminUserVideoJobsPage() {
       });
       if (userID.trim()) params.set("user_id", userID.trim());
       if (status !== "all") params.set("status", status);
-      if (formatFilter !== "all") params.set("format", formatFilter);
+      if (effectiveFormatFilter !== "all") params.set("format", effectiveFormatFilter);
       if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       if (quick !== "all") params.set("quick", quick);
@@ -2061,12 +2225,12 @@ export default function AdminUserVideoJobsPage() {
         setLoading(false);
       }
     }
-  }, [assetDomainFilter, formatFilter, guardReason, page, pageSize, q, quick, sampleFilter, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, status, userID]);
+  }, [assetDomainFilter, effectiveFormatFilter, guardReason, page, pageSize, q, quick, sampleFilter, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, status, userID]);
 
   const applyListFilters = useCallback(() => {
     const nextUserID = draftUserID.trim();
     const nextStatus = draftStatus.trim() || "all";
-    const nextFormat = draftFormatFilter.trim() || "all";
+    const nextFormat = lockedFormatFilter || draftFormatFilter.trim() || "all";
     const nextAssetDomain = draftAssetDomainFilter.trim() || "all";
     const nextGuardReason = draftGuardReason.trim().toLowerCase();
     const nextQ = draftQ.trim();
@@ -2093,6 +2257,7 @@ export default function AdminUserVideoJobsPage() {
     }
   }, [
     draftFormatFilter,
+    lockedFormatFilter,
     draftAssetDomainFilter,
     draftGuardReason,
     draftQ,
@@ -2242,7 +2407,7 @@ export default function AdminUserVideoJobsPage() {
     try {
       const params = new URLSearchParams({ window: overviewWindow });
       if (userID.trim()) params.set("user_id", userID.trim());
-      if (formatFilter !== "all") params.set("format", formatFilter);
+      if (effectiveFormatFilter !== "all") params.set("format", effectiveFormatFilter);
       if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
@@ -2264,7 +2429,7 @@ export default function AdminUserVideoJobsPage() {
       window.URL.revokeObjectURL(url);
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
-      if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (effectiveFormatFilter !== "all") filters.push(`格式:${effectiveFormatFilter}`);
       if (assetDomainFilter !== "all") {
         filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
       }
@@ -2281,7 +2446,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       setExportingFeedbackReport(false);
     }
-  }, [assetDomainFilter, formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
+  }, [assetDomainFilter, effectiveFormatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
 
   const exportFeedbackIntegrityReport = useCallback(async () => {
     setExportingFeedbackIntegrityReport(true);
@@ -2289,7 +2454,7 @@ export default function AdminUserVideoJobsPage() {
     try {
       const params = new URLSearchParams({ window: overviewWindow });
       if (userID.trim()) params.set("user_id", userID.trim());
-      if (formatFilter !== "all") params.set("format", formatFilter);
+      if (effectiveFormatFilter !== "all") params.set("format", effectiveFormatFilter);
       if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
@@ -2311,7 +2476,7 @@ export default function AdminUserVideoJobsPage() {
       window.URL.revokeObjectURL(url);
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
-      if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (effectiveFormatFilter !== "all") filters.push(`格式:${effectiveFormatFilter}`);
       if (assetDomainFilter !== "all") {
         filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
       }
@@ -2328,7 +2493,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       setExportingFeedbackIntegrityReport(false);
     }
-  }, [assetDomainFilter, formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
+  }, [assetDomainFilter, effectiveFormatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
 
   const exportFeedbackIntegrityTrendReport = useCallback(async () => {
     setExportingFeedbackIntegrityTrendReport(true);
@@ -2336,7 +2501,7 @@ export default function AdminUserVideoJobsPage() {
     try {
       const params = new URLSearchParams({ window: overviewWindow });
       if (userID.trim()) params.set("user_id", userID.trim());
-      if (formatFilter !== "all") params.set("format", formatFilter);
+      if (effectiveFormatFilter !== "all") params.set("format", effectiveFormatFilter);
       if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
@@ -2358,7 +2523,7 @@ export default function AdminUserVideoJobsPage() {
       window.URL.revokeObjectURL(url);
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
-      if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (effectiveFormatFilter !== "all") filters.push(`格式:${effectiveFormatFilter}`);
       if (assetDomainFilter !== "all") {
         filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
       }
@@ -2377,7 +2542,7 @@ export default function AdminUserVideoJobsPage() {
     }
   }, [
     assetDomainFilter,
-    formatFilter,
+    effectiveFormatFilter,
     guardReason,
     overviewWindow,
     setExportNotice,
@@ -2393,7 +2558,7 @@ export default function AdminUserVideoJobsPage() {
     try {
       const params = new URLSearchParams({ window: overviewWindow, limit: "500" });
       if (userID.trim()) params.set("user_id", userID.trim());
-      if (formatFilter !== "all") params.set("format", formatFilter);
+      if (effectiveFormatFilter !== "all") params.set("format", effectiveFormatFilter);
       if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
@@ -2415,7 +2580,7 @@ export default function AdminUserVideoJobsPage() {
       window.URL.revokeObjectURL(url);
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
-      if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (effectiveFormatFilter !== "all") filters.push(`格式:${effectiveFormatFilter}`);
       if (assetDomainFilter !== "all") {
         filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
       }
@@ -2434,7 +2599,7 @@ export default function AdminUserVideoJobsPage() {
     }
   }, [
     assetDomainFilter,
-    formatFilter,
+    effectiveFormatFilter,
     guardReason,
     overviewWindow,
     setExportNotice,
@@ -2502,7 +2667,7 @@ export default function AdminUserVideoJobsPage() {
     try {
       const params = new URLSearchParams({ window: overviewWindow, blocked_only: "1" });
       if (userID.trim()) params.set("user_id", userID.trim());
-      if (formatFilter !== "all") params.set("format", formatFilter);
+      if (effectiveFormatFilter !== "all") params.set("format", effectiveFormatFilter);
       if (assetDomainFilter !== "all") params.set("asset_domain", assetDomainFilter);
       if (guardReason.trim()) params.set("guard_reason", guardReason.trim().toLowerCase());
       const res = await fetchWithAuth(
@@ -2524,7 +2689,7 @@ export default function AdminUserVideoJobsPage() {
       window.URL.revokeObjectURL(url);
       const filters: string[] = [];
       if (userID.trim()) filters.push(`用户#${userID.trim()}`);
-      if (formatFilter !== "all") filters.push(`格式:${formatFilter}`);
+      if (effectiveFormatFilter !== "all") filters.push(`格式:${effectiveFormatFilter}`);
       if (assetDomainFilter !== "all") {
         filters.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
       }
@@ -2541,7 +2706,7 @@ export default function AdminUserVideoJobsPage() {
     } finally {
       setExportingBlockedFeedbackReport(false);
     }
-  }, [assetDomainFilter, formatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
+  }, [assetDomainFilter, effectiveFormatFilter, guardReason, overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction, userID]);
 
   const exportSampleBaselineDiff = useCallback(async () => {
     setExportingSampleBaselineDiff(true);
@@ -2658,6 +2823,10 @@ export default function AdminUserVideoJobsPage() {
     if (!activeJobID) return;
     void loadDetail(activeJobID);
   }, [detailReviewStatusFilter, loadDetail]);
+
+  useEffect(() => {
+    setDetailAI1FieldAuditSourceFilter("all");
+  }, [detailJobID]);
 
   useEffect(() => {
     setRerenderProposalIDInput("");
@@ -3468,14 +3637,20 @@ export default function AdminUserVideoJobsPage() {
   const feedbackFilterLabel = useMemo(() => {
     const parts: string[] = [];
     if (userID.trim()) parts.push(`用户#${userID.trim()}`);
-    if (formatFilter !== "all") parts.push(`格式:${formatFilter}`);
+    if (effectiveFormatFilter !== "all") parts.push(`格式:${effectiveFormatFilter}`);
     if (assetDomainFilter !== "all") {
       parts.push(`资产域:${ASSET_DOMAIN_LABEL[assetDomainFilter] || assetDomainFilter}`);
     }
     if (guardReason.trim()) parts.push(`原因:${guardReason.trim()}`);
     if (!parts.length) return "全量";
     return parts.join(" / ");
-  }, [assetDomainFilter, formatFilter, guardReason, userID]);
+  }, [assetDomainFilter, effectiveFormatFilter, guardReason, userID]);
+  const sectionTitle = lockedFormatFilter ? `用户创作任务 · ${lockedFormatFilter.toUpperCase()}` : "用户创作任务";
+  const sectionDescription = lockedFormatFilter
+    ? `当前页面已锁定为 ${lockedFormatFilter.toUpperCase()} 格式，便于按格式独立巡检与分析。`
+    : "按用户查看视频转图片任务，追踪处理进度与产物。";
+  const hideTaskListSection = true;
+  const feedbackIntegrityHref = `/admin/users/feedback-integrity?format=${encodeURIComponent(effectiveFormatFilter)}`;
   const blockedExportLabel = useMemo(() => {
     const reasonText = guardReason.trim();
     if (reasonText && quick === "guard_blocked") {
@@ -3675,6 +3850,101 @@ export default function AdminUserVideoJobsPage() {
     }
     return out;
   }, [detail?.ai_gif_reviews]);
+  const detailAIImageReviewRows = useMemo(() => {
+    const source = Array.isArray(detail?.ai_image_reviews) ? detail.ai_image_reviews : [];
+    return [...source].sort((a, b) => {
+      const at = new Date(a.created_at || "").getTime();
+      const bt = new Date(b.created_at || "").getTime();
+      if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) {
+        return bt - at;
+      }
+      return (b.id || 0) - (a.id || 0);
+    });
+  }, [detail?.ai_image_reviews]);
+  const detailAIImageReviewSummary = useMemo(() => {
+    const summary = {
+      total: 0,
+      deliver: 0,
+      deliver_with_fallback: 0,
+      need_manual_review: 0,
+      reject: 0,
+    };
+    for (const row of detailAIImageReviewRows) {
+      summary.total += 1;
+      const recommendation = normalizeImageReviewRecommendation(row.recommendation);
+      if (recommendation === "deliver") summary.deliver += 1;
+      if (recommendation === "deliver_with_fallback") summary.deliver_with_fallback += 1;
+      if (recommendation === "need_manual_review") summary.need_manual_review += 1;
+      if (recommendation === "reject") summary.reject += 1;
+    }
+    return summary;
+  }, [detailAIImageReviewRows]);
+  const detailAI1Debug = detail?.ai1_debug || null;
+  const detailAI1ModelRequest = useMemo(
+    () => toRecord(detailAI1Debug?.model_request),
+    [detailAI1Debug?.model_request]
+  );
+  const detailAI1ModelResponse = useMemo(
+    () => toRecord(detailAI1Debug?.model_response),
+    [detailAI1Debug?.model_response]
+  );
+  const detailAI1ModelRequestSummary = useMemo(() => {
+    return toRecord(detailAI1ModelRequest?.payload_summary_v2);
+  }, [detailAI1ModelRequest]);
+  const detailAI1Output = useMemo(
+    () => toRecord(detailAI1Debug?.output),
+    [detailAI1Debug?.output]
+  );
+  const detailAI1UserReply = useMemo(
+    () => toRecord(detailAI1Output?.user_reply),
+    [detailAI1Output]
+  );
+  const detailAI1AI2Instruction = useMemo(
+    () => toRecord(detailAI1Output?.ai2_instruction),
+    [detailAI1Output]
+  );
+  const detailAI1DebugJSON = useMemo(() => {
+    if (!detailAI1Debug) {
+      return {
+        input: "{}",
+        modelRequest: "{}",
+        modelResponse: "{}",
+        output: "{}",
+        trace: "{}",
+      };
+    }
+    return {
+      input: formatPrettyJSON(detailAI1Debug.input || {}),
+      modelRequest: formatPrettyJSON(detailAI1Debug.model_request || {}),
+      modelResponse: formatPrettyJSON(detailAI1Debug.model_response || {}),
+      output: formatPrettyJSON(detailAI1Debug.output || {}),
+      trace: formatPrettyJSON(detailAI1Debug.trace || {}),
+    };
+  }, [detailAI1Debug]);
+  const detailAI1FieldAuditAllRows = useMemo(() => {
+    const source = Array.isArray(detailAI1Debug?.field_audit) ? detailAI1Debug.field_audit : [];
+    const stageOrder = new Map<string, number>([
+      ["input", 1],
+      ["model_request", 2],
+      ["output", 3],
+    ]);
+    return [...source].sort((a, b) => {
+      const as = String(a.stage || "").toLowerCase().trim();
+      const bs = String(b.stage || "").toLowerCase().trim();
+      const ao = stageOrder.get(as) || 99;
+      const bo = stageOrder.get(bs) || 99;
+      if (ao !== bo) return ao - bo;
+      return String(a.field_path || "").localeCompare(String(b.field_path || ""));
+    });
+  }, [detailAI1Debug?.field_audit]);
+  const detailAI1FieldAuditRows = useMemo(() => {
+    if (detailAI1FieldAuditSourceFilter === "all") {
+      return detailAI1FieldAuditAllRows;
+    }
+    return detailAI1FieldAuditAllRows.filter((row) => {
+      return String(row.source || "").toLowerCase().trim() === detailAI1FieldAuditSourceFilter;
+    });
+  }, [detailAI1FieldAuditAllRows, detailAI1FieldAuditSourceFilter]);
   const detailEvaluationByOutputID = useMemo(() => {
     const out = new Map<number, AdminVideoJobGIFEvaluation>();
     for (const item of detailAuditEvaluationRows) {
@@ -3741,6 +4011,38 @@ export default function AdminUserVideoJobsPage() {
       }))
       .slice(0, 24);
   }, [detailAIReviewByOutputID, detailEvaluationByOutputID, detailGIFMainOutputs]);
+  const exportAI1FieldAuditJSON = useCallback(() => {
+    if (!detail || !detailAI1Debug) {
+      setExportNotice("导出失败：当前任务缺少 AI1 调试数据");
+      return;
+    }
+    try {
+      const format = String(detailAI1Debug.requested_format || "unknown").toLowerCase();
+      const filename = `ai1-field-audit-job-${detail.job.id}-${format}-${Date.now()}.json`;
+      const payload = {
+        exported_at: new Date().toISOString(),
+        job_id: detail.job.id,
+        requested_format: detailAI1Debug.requested_format || "",
+        flow_mode: detailAI1Debug.flow_mode || "",
+        source_filter: detailAI1FieldAuditSourceFilter,
+        total_rows: detailAI1FieldAuditAllRows.length,
+        selected_rows: detailAI1FieldAuditRows.length,
+        rows: detailAI1FieldAuditRows,
+      };
+      downloadTextFile(filename, formatPrettyJSON(payload), "application/json;charset=utf-8;");
+      setExportNotice(`导出成功：${filename}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出失败";
+      setExportNotice(`导出失败：${message}`);
+    }
+  }, [
+    detail,
+    detailAI1Debug,
+    detailAI1FieldAuditAllRows.length,
+    detailAI1FieldAuditRows,
+    detailAI1FieldAuditSourceFilter,
+    setExportNotice,
+  ]);
   const renderProbeQualityTable = (
     title: string,
     rows: AdminVideoJobSourceProbeQualityStat[],
@@ -3800,8 +4102,8 @@ export default function AdminUserVideoJobsPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="用户创作任务"
-        description="按用户查看视频转表情包任务，追踪处理进度与产物。"
+        title={sectionTitle}
+        description={sectionDescription}
         actions={
           <div className="flex items-center gap-2">
             <Link
@@ -3811,7 +4113,7 @@ export default function AdminUserVideoJobsPage() {
               样本基线页
             </Link>
             <Link
-              href="/admin/users/feedback-integrity?format=all"
+              href={feedbackIntegrityHref}
               className={`${TINT_BUTTON_CLASS} border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100`}
             >
               反馈完整性页
@@ -3914,17 +4216,26 @@ export default function AdminUserVideoJobsPage() {
             <option value="failed">failed</option>
             <option value="cancelled">cancelled</option>
           </select>
-          <select
-            value={draftFormatFilter}
-            onChange={(e) => setDraftFormatFilter(e.target.value)}
-            className={SELECT_CLASS}
-          >
-            {FORMAT_FILTER_OPTIONS.map((item) => (
-              <option key={item} value={item}>
-                格式：{item}
-              </option>
-            ))}
-          </select>
+          {lockedFormatFilter ? (
+            <div className={`${SELECT_CLASS} flex items-center justify-between gap-2`}>
+              <span>格式：{lockedFormatFilter}</span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                锁定
+              </span>
+            </div>
+          ) : (
+            <select
+              value={draftFormatFilter}
+              onChange={(e) => setDraftFormatFilter(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              {FORMAT_FILTER_OPTIONS.map((item) => (
+                <option key={item} value={item}>
+                  格式：{item}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={draftAssetDomainFilter}
             onChange={(e) => setDraftAssetDomainFilter(e.target.value)}
@@ -4914,7 +5225,20 @@ export default function AdminUserVideoJobsPage() {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
+      {hideTaskListSection ? (
+        <div className="rounded-3xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm">
+          <div className="text-sm font-bold text-indigo-700">任务列表已迁移</div>
+          <div className="mt-1 text-sm text-slate-600">
+            当前页面不再展示任务列表，请前往
+            <Link href="/admin/users/highlight-jobs" className="mx-1 font-semibold text-indigo-700 hover:text-indigo-800">
+              视频任务列表
+            </Link>
+            进行任务检索与详情查看。
+          </div>
+        </div>
+      ) : null}
+
+      <div className={`${hideTaskListSection ? "hidden " : ""}overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm`}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1200px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
@@ -5056,7 +5380,7 @@ export default function AdminUserVideoJobsPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">
+      <div className={`${hideTaskListSection ? "hidden " : ""}flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600`}>
         <div>
           共 {total} 条，当前第 {page} / {totalPages} 页
         </div>
@@ -5078,7 +5402,7 @@ export default function AdminUserVideoJobsPage() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+      <div className={`${hideTaskListSection ? "hidden " : ""}rounded-3xl border border-slate-100 bg-white p-5 shadow-sm`}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-bold text-slate-800">任务详情</div>
           {detailJobID ? (
@@ -5108,6 +5432,160 @@ export default function AdminUserVideoJobsPage() {
             </div>
               );
             })()}
+
+            {detailAI1Debug ? (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-indigo-700">
+                  AI1 深度调试（输入 / 模型请求 / 输出）
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="rounded-xl border border-indigo-100 bg-white px-3 py-2 text-xs text-slate-700">
+                    <div>格式：{(detailAI1Debug.requested_format || "-").toUpperCase()}</div>
+                    <div className="mt-1">flow_mode：{detailAI1Debug.flow_mode || "-"}</div>
+                    <div className="mt-1 truncate" title={detailAI1Debug.source_prompt || ""}>
+                      用户提示词：{detailAI1Debug.source_prompt || "-"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-indigo-100 bg-white px-3 py-2 text-xs text-slate-700">
+                    <div>模型：{String(detailAI1ModelRequest?.provider || "-")} / {String(detailAI1ModelRequest?.model || "-")}</div>
+                    <div className="mt-1">状态：{String(detailAI1ModelRequest?.request_status || "-")}</div>
+                    <div className="mt-1">耗时：{formatDurationMs(parseNumberValue(detailAI1ModelRequest?.request_duration_ms))}</div>
+                    <div className="mt-1">
+                      tokens：in {formatInteger(parseNumberValue(detailAI1ModelRequestSummary?.input_tokens))} / out{" "}
+                      {formatInteger(parseNumberValue(detailAI1ModelRequestSummary?.output_tokens))}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-indigo-100 bg-white px-3 py-2 text-xs text-slate-700">
+                    <div className="truncate" title={String(detailAI1UserReply?.intent_understanding || "")}>
+                      用户可读理解：{String(detailAI1UserReply?.intent_understanding || detailAI1UserReply?.message || "-")}
+                    </div>
+                    <div className="mt-1 truncate" title={String(detailAI1AI2Instruction?.objective || "")}>
+                      AI2 objective：{String(detailAI1AI2Instruction?.objective || "-")}
+                    </div>
+                    <div className="mt-1">plan_found：{String(detailAI1ModelResponse?.plan_found ?? "-")}</div>
+                    <div className="mt-1">directive_found：{String(detailAI1ModelResponse?.directive_found ?? "-")}</div>
+                  </div>
+                </div>
+
+                {detailAI1FieldAuditAllRows.length ? (
+                  <div className="mt-3 rounded-xl border border-indigo-100 bg-white p-2">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
+                        字段级来源审计
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={detailAI1FieldAuditSourceFilter}
+                          onChange={(event) =>
+                            setDetailAI1FieldAuditSourceFilter(
+                              (event.target.value as (typeof AI1_FIELD_AUDIT_SOURCE_OPTIONS)[number]) || "all"
+                            )
+                          }
+                          className="h-7 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] text-slate-700 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                        >
+                          {AI1_FIELD_AUDIT_SOURCE_OPTIONS.map((item) => (
+                            <option key={`ai1-field-source-${item}`} value={item}>
+                              {AI1_FIELD_AUDIT_SOURCE_LABEL[item] || item}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={exportAI1FieldAuditJSON}
+                          className="inline-flex h-7 items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                        >
+                          导出 JSON
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mb-2 text-[11px] text-slate-500">
+                      当前筛选：{AI1_FIELD_AUDIT_SOURCE_LABEL[detailAI1FieldAuditSourceFilter] || detailAI1FieldAuditSourceFilter} ·
+                      显示 {detailAI1FieldAuditRows.length}/{detailAI1FieldAuditAllRows.length} 条
+                    </div>
+                    <div className="max-h-56 overflow-auto rounded-lg border border-indigo-100">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-indigo-50 text-indigo-700">
+                          <tr>
+                            <th className="px-2 py-1.5">阶段</th>
+                            <th className="px-2 py-1.5">字段</th>
+                            <th className="px-2 py-1.5">来源</th>
+                            <th className="px-2 py-1.5">值</th>
+                            <th className="px-2 py-1.5">说明</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-indigo-50 text-slate-700">
+                          {detailAI1FieldAuditRows.map((row, idx) => {
+                            const source = String(row.source || "").toLowerCase().trim();
+                            const sourceClass =
+                              source === "user_input" || source === "user_action"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : source === "video_probe" || source === "video_asset"
+                                  ? "bg-sky-100 text-sky-700"
+                                  : source === "developer_rule"
+                                    ? "bg-violet-100 text-violet-700"
+                                    : source === "model_output"
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-slate-100 text-slate-600";
+                            const valueText =
+                              typeof row.value === "object"
+                                ? formatPrettyJSON(row.value)
+                                : String(row.value ?? "-");
+                            return (
+                              <tr key={`ai1-field-audit-${idx}-${row.field_path || ""}`}>
+                                <td className="px-2 py-1.5 whitespace-nowrap">{row.stage || "-"}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">{row.field_path || "-"}</td>
+                                <td className="px-2 py-1.5">
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 font-semibold ${sourceClass}`}>
+                                    {source || "-"}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-1.5 max-w-[260px]">
+                                  <div className="truncate" title={valueText}>
+                                    {valueText}
+                                  </div>
+                                </td>
+                                <td className="px-2 py-1.5 max-w-[320px]">
+                                  <div className="truncate" title={String(row.detail || "")}>
+                                    {row.detail || "-"}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {!detailAI1FieldAuditRows.length ? (
+                            <tr>
+                              <td colSpan={5} className="px-2 py-4 text-center text-slate-400">
+                                当前筛选下暂无字段
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                  <details className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
+                    <summary className="cursor-pointer font-semibold text-indigo-700">POST 给 AI：input</summary>
+                    <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.input}</pre>
+                  </details>
+                  <details className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
+                    <summary className="cursor-pointer font-semibold text-indigo-700">POST 给 AI：model_request</summary>
+                    <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.modelRequest}</pre>
+                  </details>
+                  <details className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
+                    <summary className="cursor-pointer font-semibold text-indigo-700">AI 返回：model_response</summary>
+                    <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.modelResponse}</pre>
+                  </details>
+                  <details className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
+                    <summary className="cursor-pointer font-semibold text-indigo-700">AI1 结构化输出：output / trace</summary>
+                    <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.output}</pre>
+                    <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.trace}</pre>
+                  </details>
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -5883,6 +6361,87 @@ export default function AdminUserVideoJobsPage() {
                 </table>
               </div>
             </div>
+
+            {detailAIImageReviewRows.length ? (
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/30 p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-sky-700">
+                  AI 图像复审记录（PNG/JPG/WebP）
+                </div>
+                <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
+                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600">
+                    total: {detailAIImageReviewSummary.total}
+                  </span>
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                    deliver: {detailAIImageReviewSummary.deliver}
+                  </span>
+                  <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-cyan-700">
+                    deliver_with_fallback: {detailAIImageReviewSummary.deliver_with_fallback}
+                  </span>
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                    need_manual_review: {detailAIImageReviewSummary.need_manual_review}
+                  </span>
+                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">
+                    reject: {detailAIImageReviewSummary.reject}
+                  </span>
+                </div>
+                <div className="max-h-72 overflow-auto rounded-2xl border border-sky-100 bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-sky-50 text-sky-700">
+                      <tr>
+                        <th className="px-3 py-2">格式/阶段</th>
+                        <th className="px-3 py-2">建议</th>
+                        <th className="px-3 py-2">输出统计</th>
+                        <th className="px-3 py-2">预算/时长</th>
+                        <th className="px-3 py-2">摘要</th>
+                        <th className="px-3 py-2">时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sky-50 text-slate-700">
+                      {detailAIImageReviewRows.map((row) => (
+                        <tr key={`ai-image-review-${row.id}`}>
+                          <td className="px-3 py-2">
+                            <div>{(row.target_format || "-").toUpperCase()}</div>
+                            <div className="text-[10px] text-slate-500">{row.stage || "-"}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${imageReviewRecommendationBadgeClass(row.recommendation)}`}
+                            >
+                              {imageReviewRecommendationLabel(row.recommendation)}
+                            </span>
+                            {row.quality_fallback ? (
+                              <div className="mt-1 text-[10px] text-cyan-700">quality_fallback: true</div>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div>reviewed {formatInteger(row.reviewed_outputs)}</div>
+                            <div className="text-[10px] text-slate-500">
+                              deliver {formatInteger(row.deliver_count)} / reject {formatInteger(row.reject_count)}
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              manual {formatInteger(row.manual_review_count)} / hard-gate {formatInteger(row.hard_gate_reject_count)}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div>budget {formatInteger(row.candidate_budget)}</div>
+                            <div className="text-[10px] text-slate-500">
+                              duration {formatScore(row.effective_duration_sec)}s
+                            </div>
+                            <div className="text-[10px] text-slate-500">selector {row.quality_selector_version || "-"}</div>
+                          </td>
+                          <td className="max-w-[320px] px-3 py-2">
+                            <div className="truncate" title={row.summary_note || ""}>
+                              {row.summary_note || "-"}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">{row.created_at || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4">
               <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-violet-700">

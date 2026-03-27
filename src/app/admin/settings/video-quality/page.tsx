@@ -90,6 +90,12 @@ type VideoQualitySetting = {
   ai_director_duration_expand_ratio: number;
   ai_director_count_absolute_cap: number;
   ai_director_duration_absolute_cap_sec: number;
+  gif_ai_judge_hard_gate_min_overall_score: number;
+  gif_ai_judge_hard_gate_min_clarity_score: number;
+  gif_ai_judge_hard_gate_min_loop_score: number;
+  gif_ai_judge_hard_gate_min_output_score: number;
+  gif_ai_judge_hard_gate_min_duration_ms: number;
+  gif_ai_judge_hard_gate_size_multiplier: number;
   format_scope?: string;
   resolved_from?: string[];
   override_version?: string;
@@ -135,6 +141,28 @@ type VideoQualityRolloutEffectCard = {
 
 type VideoQualityRolloutEffectsResponse = {
   items?: VideoQualityRolloutEffectCard[];
+};
+
+type VideoQualitySettingAuditField = {
+  field?: string;
+  old_value?: unknown;
+  new_value?: unknown;
+};
+
+type VideoQualitySettingAuditItem = {
+  id?: number;
+  admin_id?: number;
+  action?: string;
+  change_kind?: string;
+  format_scope?: string;
+  resolved_from?: string[];
+  changed_count?: number;
+  changed_fields?: VideoQualitySettingAuditField[];
+  created_at?: string;
+};
+
+type VideoQualitySettingAuditsResponse = {
+  items?: VideoQualitySettingAuditItem[];
 };
 
 type VideoJobsOverviewRolloutAudit = {
@@ -300,6 +328,12 @@ const DEFAULT_FORM: VideoQualitySetting = {
   ai_director_duration_expand_ratio: 0.2,
   ai_director_count_absolute_cap: 10,
   ai_director_duration_absolute_cap_sec: 6,
+  gif_ai_judge_hard_gate_min_overall_score: 0.2,
+  gif_ai_judge_hard_gate_min_clarity_score: 0.2,
+  gif_ai_judge_hard_gate_min_loop_score: 0.2,
+  gif_ai_judge_hard_gate_min_output_score: 0.2,
+  gif_ai_judge_hard_gate_min_duration_ms: 200,
+  gif_ai_judge_hard_gate_size_multiplier: 4,
 };
 
 const DITHER_OPTIONS = [
@@ -459,6 +493,24 @@ function validateBeforeSave(form: VideoQualitySetting): string | null {
   if (form.ai_director_duration_absolute_cap_sec < 2 || form.ai_director_duration_absolute_cap_sec > 12) {
     return "AI1 时长绝对上限非法：ai_director_duration_absolute_cap_sec 必须在 2~12 秒。";
   }
+  if (form.gif_ai_judge_hard_gate_min_overall_score <= 0 || form.gif_ai_judge_hard_gate_min_overall_score > 1) {
+    return "AI3 硬闸门非法：gif_ai_judge_hard_gate_min_overall_score 必须在 (0,1]。";
+  }
+  if (form.gif_ai_judge_hard_gate_min_clarity_score <= 0 || form.gif_ai_judge_hard_gate_min_clarity_score > 1) {
+    return "AI3 硬闸门非法：gif_ai_judge_hard_gate_min_clarity_score 必须在 (0,1]。";
+  }
+  if (form.gif_ai_judge_hard_gate_min_loop_score <= 0 || form.gif_ai_judge_hard_gate_min_loop_score > 1) {
+    return "AI3 硬闸门非法：gif_ai_judge_hard_gate_min_loop_score 必须在 (0,1]。";
+  }
+  if (form.gif_ai_judge_hard_gate_min_output_score <= 0 || form.gif_ai_judge_hard_gate_min_output_score > 1) {
+    return "AI3 硬闸门非法：gif_ai_judge_hard_gate_min_output_score 必须在 (0,1]。";
+  }
+  if (form.gif_ai_judge_hard_gate_min_duration_ms < 50 || form.gif_ai_judge_hard_gate_min_duration_ms > 10000) {
+    return "AI3 硬闸门非法：gif_ai_judge_hard_gate_min_duration_ms 必须在 50~10000。";
+  }
+  if (form.gif_ai_judge_hard_gate_size_multiplier < 1 || form.gif_ai_judge_hard_gate_size_multiplier > 20) {
+    return "AI3 硬闸门非法：gif_ai_judge_hard_gate_size_multiplier 必须在 1~20。";
+  }
   if (form.gif_gifsicle_level < 1 || form.gif_gifsicle_level > 3) {
     return "GIF Gifsicle 压缩等级非法：gif_gifsicle_level 必须在 1~3。";
   }
@@ -557,6 +609,17 @@ function formatMetric(value?: number, digits = 3) {
   return n.toFixed(digits);
 }
 
+function formatAuditFieldValue(value: unknown) {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function rolloutVerdictMeta(value?: string) {
   const verdict = (value || "").trim().toLowerCase();
   switch (verdict) {
@@ -647,6 +710,9 @@ export default function Page() {
   const [rolloutEffectsLoading, setRolloutEffectsLoading] = useState(false);
   const [rolloutEffectsError, setRolloutEffectsError] = useState<string | null>(null);
   const [rolloutEffectsFallbackUsed, setRolloutEffectsFallbackUsed] = useState(false);
+  const [qualityAudits, setQualityAudits] = useState<VideoQualitySettingAuditItem[]>([]);
+  const [qualityAuditsLoading, setQualityAuditsLoading] = useState(false);
+  const [qualityAuditsError, setQualityAuditsError] = useState<string | null>(null);
   const [templateFormat, setTemplateFormat] = useState<PromptTemplateFormat>(initialTemplateFormat);
   const [templateTab, setTemplateTab] = useState<PromptTemplateTabKey>("ai1");
   const [templateItems, setTemplateItems] = useState<AdminVideoAIPromptTemplateItem[]>([]);
@@ -971,6 +1037,26 @@ export default function Page() {
     }
   };
 
+  const loadQualityAudits = async (limit = 10) => {
+    setQualityAuditsLoading(true);
+    setQualityAuditsError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("format", qualityFormat);
+      params.set("limit", String(limit));
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings/audits?${params.toString()}`);
+      if (!res.ok) throw new Error(await parseApiError(res, "加载质量配置审计失败"));
+      const data = (await res.json()) as VideoQualitySettingAuditsResponse;
+      setQualityAudits(Array.isArray(data.items) ? data.items : []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "加载质量配置审计失败";
+      setQualityAuditsError(message);
+      setQualityAudits([]);
+    } finally {
+      setQualityAuditsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!lockedQualityFormat) {
       return;
@@ -990,14 +1076,20 @@ export default function Page() {
       setLoading(true);
       setRolloutEffectsLoading(true);
       setRolloutEffectsError(null);
+      setQualityAuditsLoading(true);
+      setQualityAuditsError(null);
       setError(null);
       setSuccess(null);
       try {
         const qualityParams = new URLSearchParams();
         qualityParams.set("format", qualityFormat);
-        const [settingRes, effectsResult] = await Promise.all([
+        const qualityAuditParams = new URLSearchParams();
+        qualityAuditParams.set("format", qualityFormat);
+        qualityAuditParams.set("limit", "10");
+        const [settingRes, effectsResult, auditsRes] = await Promise.all([
           fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings?${qualityParams.toString()}`),
           fetchRolloutEffects(6),
+          fetchWithAuth(`${API_BASE}/api/admin/video-jobs/quality-settings/audits?${qualityAuditParams.toString()}`),
         ]);
         if (!settingRes.ok) throw new Error(await parseApiError(settingRes, "加载失败"));
         const data = (await settingRes.json()) as VideoQualitySetting;
@@ -1013,10 +1105,15 @@ export default function Page() {
         setRolloutEffects(effectsResult.items);
         setRolloutEffectsFallbackUsed(effectsResult.fallbackUsed);
         setRolloutEffectsError(null);
+        if (!auditsRes.ok) throw new Error(await parseApiError(auditsRes, "加载质量配置审计失败"));
+        const auditsData = (await auditsRes.json()) as VideoQualitySettingAuditsResponse;
+        setQualityAudits(Array.isArray(auditsData.items) ? auditsData.items : []);
+        setQualityAuditsError(null);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "加载失败";
         setError(message);
         setRolloutEffectsFallbackUsed(false);
+        setQualityAudits([]);
         setBaseForm(null);
         setAi1ConstraintJSON(formatAI1ConstraintVariableJSON(DEFAULT_FORM));
         setAi1ConstraintError(null);
@@ -1026,6 +1123,7 @@ export default function Page() {
       } finally {
         setLoading(false);
         setRolloutEffectsLoading(false);
+        setQualityAuditsLoading(false);
       }
     };
     void load();
@@ -1087,6 +1185,7 @@ export default function Page() {
       setQualityResolvedFrom(Array.isArray(data.resolved_from) ? data.resolved_from.filter(Boolean) : []);
       setQualityOverrideVersion((data.override_version || "").trim());
       setSuccess(`已保存视频转图质量配置（scope=${qualityFormat}，${dirtyCount} 项变更）。`);
+      void loadQualityAudits(10);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "保存失败";
       setError(message);
@@ -1585,6 +1684,82 @@ export default function Page() {
                 </div>
               );
             })}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">质量配置字段审计（最近 10 条）</h3>
+            <p className="mt-1 text-xs text-slate-500">展示每次保存的字段级变更（旧值 → 新值）。</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadQualityAudits(10)}
+            disabled={qualityAuditsLoading}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+          >
+            {qualityAuditsLoading ? "刷新中..." : "刷新审计"}
+          </button>
+        </div>
+
+        {qualityAuditsError ? (
+          <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs text-rose-700">{qualityAuditsError}</div>
+        ) : null}
+
+        {qualityAuditsLoading && !qualityAudits.length ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">加载中...</div>
+        ) : null}
+
+        {!qualityAuditsLoading && !qualityAudits.length ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">
+            暂无字段级审计记录。
+          </div>
+        ) : null}
+
+        {qualityAudits.length ? (
+          <div className="space-y-3">
+            {qualityAudits.map((item) => (
+              <div key={`${item.id || 0}-${item.created_at || ""}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <div>
+                    {formatTime(item.created_at)} · Admin #{item.admin_id || 0} · scope=
+                    {(item.format_scope || "all").toUpperCase()}
+                  </div>
+                  <div>
+                    {(item.change_kind || "patch").toLowerCase()} · {(item.changed_count || 0)} 项变更
+                  </div>
+                </div>
+                {Array.isArray(item.resolved_from) && item.resolved_from.length ? (
+                  <div className="mt-1 text-[11px] text-slate-500">生效链路：{item.resolved_from.join(" → ")}</div>
+                ) : null}
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-[11px] text-slate-600">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500">
+                        <th className="px-2 py-1">字段</th>
+                        <th className="px-2 py-1">旧值</th>
+                        <th className="px-2 py-1">新值</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(item.changed_fields || []).map((field, idx) => (
+                        <tr key={`${item.id || 0}-${field.field || "field"}-${idx}`} className="border-b border-slate-100">
+                          <td className="px-2 py-1 font-mono text-[10px] text-slate-700">{field.field || "-"}</td>
+                          <td className="px-2 py-1 font-mono text-[10px] text-slate-500">
+                            {formatAuditFieldValue(field.old_value)}
+                          </td>
+                          <td className="px-2 py-1 font-mono text-[10px] text-slate-700">
+                            {formatAuditFieldValue(field.new_value)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         ) : null}
       </div>
@@ -2498,6 +2673,133 @@ export default function Page() {
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500">
             说明：完成率/命中率类阈值是“低于触发”，失败率/回退率/冲突数类阈值是“高于触发”。建议先改 Warn，再观察 1~2 天再改 Critical。
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm xl:col-span-2">
+          <h3 className="text-sm font-bold text-slate-800">AI3 技术硬闸门（Hard Gate）</h3>
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>总体质量最低分（0~1）</span>
+              <input
+                type="number"
+                step="0.01"
+                min={0.01}
+                max={1}
+                value={form.gif_ai_judge_hard_gate_min_overall_score}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_ai_judge_hard_gate_min_overall_score: toNumber(
+                      e.target.value,
+                      prev.gif_ai_judge_hard_gate_min_overall_score
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>清晰度最低分（0~1）</span>
+              <input
+                type="number"
+                step="0.01"
+                min={0.01}
+                max={1}
+                value={form.gif_ai_judge_hard_gate_min_clarity_score}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_ai_judge_hard_gate_min_clarity_score: toNumber(
+                      e.target.value,
+                      prev.gif_ai_judge_hard_gate_min_clarity_score
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>闭环最低分（0~1）</span>
+              <input
+                type="number"
+                step="0.01"
+                min={0.01}
+                max={1}
+                value={form.gif_ai_judge_hard_gate_min_loop_score}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_ai_judge_hard_gate_min_loop_score: toNumber(
+                      e.target.value,
+                      prev.gif_ai_judge_hard_gate_min_loop_score
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>输出分最低阈值（0~1）</span>
+              <input
+                type="number"
+                step="0.01"
+                min={0.01}
+                max={1}
+                value={form.gif_ai_judge_hard_gate_min_output_score}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_ai_judge_hard_gate_min_output_score: toNumber(
+                      e.target.value,
+                      prev.gif_ai_judge_hard_gate_min_output_score
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>最短时长阈值（ms）</span>
+              <input
+                type="number"
+                min={50}
+                max={10000}
+                value={form.gif_ai_judge_hard_gate_min_duration_ms}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_ai_judge_hard_gate_min_duration_ms: toNumber(
+                      e.target.value,
+                      prev.gif_ai_judge_hard_gate_min_duration_ms
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-slate-500">
+              <span>体积超预算倍数阈值</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={form.gif_ai_judge_hard_gate_size_multiplier}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    gif_ai_judge_hard_gate_size_multiplier: toNumber(
+                      e.target.value,
+                      prev.gif_ai_judge_hard_gate_size_multiplier
+                    ),
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500"
+              />
+            </label>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500">
+            当 AI3 建议 deliver 时，仍会经过硬闸门二次拦截。命中硬闸门后将降级为 reject 或 need_manual_review。
           </div>
         </div>
 

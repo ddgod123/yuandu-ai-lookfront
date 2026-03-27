@@ -896,6 +896,7 @@ export default function DashboardPage() {
                     : lane.health === "red"
                       ? { label: "异常", className: "border-rose-200 bg-rose-50 text-rose-700" }
                       : { label: "未知", className: "border-slate-200 bg-slate-100 text-slate-600" };
+              const started = lane.serversActive > 0 || lane.serversTotal > 0;
               const startKey = `start:${lane.role}`;
               const stopKey = `stop:${lane.role}`;
               return (
@@ -905,9 +906,16 @@ export default function DashboardPage() {
                       <div className="text-sm font-semibold text-slate-900">{lane.label} Worker</div>
                       <div className="text-[11px] text-slate-500">{lane.queueName || "-"}</div>
                     </div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${laneMeta.className}`}>
-                      {laneMeta.label}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {!started ? (
+                        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                          未启动
+                        </span>
+                      ) : null}
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${laneMeta.className}`}>
+                        {laneMeta.label}
+                      </span>
+                    </div>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-slate-600">
                     <div>在线：{formatNumber(lane.serversActive)}/{formatNumber(lane.serversTotal)}</div>
