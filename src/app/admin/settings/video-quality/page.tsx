@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
@@ -180,6 +180,73 @@ type VideoJobsOverviewFallbackResponse = {
   feedback_rollout_audit_logs?: VideoJobsOverviewRolloutAudit[];
 };
 
+type AdminVideoImageSplitBackfillTableReport = {
+  scanned?: number;
+  would_write?: number;
+  written?: number;
+  skipped_by_format?: number;
+  fallback_used?: number;
+  failed?: number;
+  last_id?: number;
+};
+
+type AdminVideoImageSplitBackfillReport = {
+  apply?: boolean;
+  batch_size?: number;
+  format_filter?: string;
+  fallback_format?: string;
+  stopped?: boolean;
+  started_at?: string;
+  finished_at?: string;
+  jobs?: AdminVideoImageSplitBackfillTableReport;
+  outputs?: AdminVideoImageSplitBackfillTableReport;
+  packages?: AdminVideoImageSplitBackfillTableReport;
+  events?: AdminVideoImageSplitBackfillTableReport;
+  feedbacks?: AdminVideoImageSplitBackfillTableReport;
+};
+
+type AdminVideoImageSplitBackfillOptions = {
+  apply?: boolean;
+  batch_size?: number;
+  format?: string;
+  fallback_format?: string;
+  tables?: string;
+};
+
+type AdminVideoImageSplitBackfillStatus = {
+  running?: boolean;
+  stop_requested?: boolean;
+  run_id?: string;
+  requested_by?: number;
+  started_at?: string;
+  finished_at?: string;
+  heartbeat_at?: string;
+  last_error?: string;
+  options?: AdminVideoImageSplitBackfillOptions;
+  lease?: {
+    owner_instance?: string;
+    is_local_owner?: boolean;
+    timeout_seconds?: number;
+    expires_at?: string;
+    remaining_seconds?: number;
+    can_takeover?: boolean;
+  };
+  report?: AdminVideoImageSplitBackfillReport;
+  history?: AdminVideoImageSplitBackfillHistoryItem[];
+};
+
+type AdminVideoImageSplitBackfillHistoryItem = {
+  run_id?: string;
+  status?: string;
+  requested_by?: number;
+  started_at?: string;
+  finished_at?: string;
+  stopped?: boolean;
+  last_error?: string;
+  options?: AdminVideoImageSplitBackfillOptions;
+  report?: AdminVideoImageSplitBackfillReport;
+};
+
 type PromptTemplateStage = "ai1" | "ai2" | "scoring" | "ai3";
 type PromptTemplateLayer = "editable" | "fixed";
 type PromptTemplateTabKey = "ai1" | "ai2" | "scoring" | "ai3";
@@ -241,6 +308,30 @@ type AdminVideoAIPromptTemplateVersionsResponse = {
   layer?: string;
   resolved_from?: string;
   items?: AdminVideoAIPromptTemplateVersionItem[];
+};
+
+type AI1SceneKey = string;
+
+type AI1SceneStrategyDraft = {
+  scene_label: string;
+  business_goal: string;
+  audience: string;
+  operator_identity: string;
+  style_direction: string;
+  candidate_count_min: number;
+  candidate_count_max: number;
+  directive_hint: string;
+  must_capture_bias_text: string;
+  avoid_bias_text: string;
+  risk_flags_text: string;
+  enabled: boolean;
+  quality_semantic: number;
+  quality_clarity: number;
+  quality_loop: number;
+  quality_efficiency: number;
+  max_blur_tolerance: "low" | "medium" | "high";
+  avoid_watermarks: boolean;
+  avoid_extreme_dark: boolean;
 };
 
 const DEFAULT_FORM: VideoQualitySetting = {
@@ -376,6 +467,320 @@ const QUALITY_SCOPE_TITLES: Record<QualityFormatScope, string> = {
   live: "视频转图Live质量",
   mp4: "视频转图MP4质量",
 };
+
+const AI1_SCENE_OPTIONS: Array<{ value: AI1SceneKey; label: string; description: string }> = [
+  { value: "default", label: "通用截图", description: "默认平衡策略，适合大多数场景" },
+  { value: "xiaohongshu", label: "小红书网感", description: "偏重高吸引力封面与清晰特写" },
+  { value: "wallpaper", label: "手机壁纸", description: "偏重构图干净、主体居中、竖屏友好" },
+  { value: "news", label: "新闻配图", description: "偏重纪实客观、信息表达完整" },
+];
+const AI1_BUILTIN_SCENE_LABELS: Record<string, string> = AI1_SCENE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {} as Record<string, string>);
+const AI1_BUILTIN_SCENE_DESCRIPTIONS: Record<string, string> = AI1_SCENE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.description;
+  return acc;
+}, {} as Record<string, string>);
+
+const AI1_SCENE_BLUR_TOLERANCE_OPTIONS: Array<{ value: "low" | "medium" | "high"; label: string }> = [
+  { value: "low", label: "低容忍（更严格）" },
+  { value: "medium", label: "中容忍" },
+  { value: "high", label: "高容忍（更宽松）" },
+];
+
+const AI1_DEFAULT_SCENE_STRATEGY_DRAFTS: Record<AI1SceneKey, AI1SceneStrategyDraft> = {
+  default: {
+    scene_label: "通用截图",
+    business_goal: "extract_high_quality_frames",
+    audience: "通用用户",
+    operator_identity: "视觉总监",
+    style_direction: "balanced_clarity",
+    candidate_count_min: 4,
+    candidate_count_max: 8,
+    directive_hint: "优先输出清晰、可用、构图完整的静态帧。",
+    must_capture_bias_text: "主体清晰\n关键内容完整",
+    avoid_bias_text: "严重模糊\n全黑或全白曝光异常",
+    risk_flags_text: "",
+    enabled: true,
+    quality_semantic: 0.35,
+    quality_clarity: 0.35,
+    quality_loop: 0.05,
+    quality_efficiency: 0.25,
+    max_blur_tolerance: "low",
+    avoid_watermarks: true,
+    avoid_extreme_dark: true,
+  },
+  xiaohongshu: {
+    scene_label: "小红书网感",
+    business_goal: "social_spread",
+    audience: "小红书内容受众",
+    operator_identity: "时尚视觉总监",
+    style_direction: "vivid_contrast_portrait",
+    candidate_count_min: 4,
+    candidate_count_max: 8,
+    directive_hint: "按社交封面标准筛选，优先高吸引力与清晰度。",
+    must_capture_bias_text: "高颜值特写\n情绪峰值\n色彩明快",
+    avoid_bias_text: "背影遮挡\n低饱和灰雾\n杂乱背景",
+    risk_flags_text: "social_style_preferred",
+    enabled: true,
+    quality_semantic: 0.4,
+    quality_clarity: 0.45,
+    quality_loop: 0.02,
+    quality_efficiency: 0.13,
+    max_blur_tolerance: "low",
+    avoid_watermarks: true,
+    avoid_extreme_dark: true,
+  },
+  wallpaper: {
+    scene_label: "手机壁纸",
+    business_goal: "mobile_wallpaper",
+    audience: "手机壁纸使用者",
+    operator_identity: "壁纸构图编辑",
+    style_direction: "clean_centered_wallpaper",
+    candidate_count_min: 3,
+    candidate_count_max: 6,
+    directive_hint: "按壁纸可用性标准筛选，优先构图与纯净度。",
+    must_capture_bias_text: "主体居中\n画面干净\n竖屏友好",
+    avoid_bias_text: "杂乱背景\n大面积字幕\n边缘主体残缺",
+    risk_flags_text: "wallpaper_composition_strict",
+    enabled: true,
+    quality_semantic: 0.3,
+    quality_clarity: 0.5,
+    quality_loop: 0.02,
+    quality_efficiency: 0.18,
+    max_blur_tolerance: "low",
+    avoid_watermarks: true,
+    avoid_extreme_dark: true,
+  },
+  news: {
+    scene_label: "新闻配图",
+    business_goal: "news_illustration",
+    audience: "新闻阅读受众",
+    operator_identity: "纪实图片编辑",
+    style_direction: "documentary_objective",
+    candidate_count_min: 3,
+    candidate_count_max: 8,
+    directive_hint: "按纪实配图标准筛选，保证客观表达。",
+    must_capture_bias_text: "事件关键瞬间\n信息量充足\n主体明确",
+    avoid_bias_text: "夸张滤镜\n过度美化\n场景失真",
+    risk_flags_text: "documentary_objective",
+    enabled: true,
+    quality_semantic: 0.45,
+    quality_clarity: 0.35,
+    quality_loop: 0.02,
+    quality_efficiency: 0.18,
+    max_blur_tolerance: "low",
+    avoid_watermarks: true,
+    avoid_extreme_dark: true,
+  },
+};
+
+function deepCloneAI1SceneStrategyDrafts(): Record<AI1SceneKey, AI1SceneStrategyDraft> {
+  return JSON.parse(JSON.stringify(AI1_DEFAULT_SCENE_STRATEGY_DRAFTS)) as Record<AI1SceneKey, AI1SceneStrategyDraft>;
+}
+
+function normalizeAI1SceneKey(raw: string): string {
+  const source = (raw || "").trim().toLowerCase();
+  if (!source) return "";
+  const normalized = source
+    .replace(/[^a-z0-9_\-./\s]+/g, "_")
+    .replace(/[.\-/\s]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+  return normalized;
+}
+
+function getAI1DefaultSceneDraft(scene: string): AI1SceneStrategyDraft {
+  const key = normalizeAI1SceneKey(scene) || "default";
+  const hit = AI1_DEFAULT_SCENE_STRATEGY_DRAFTS[key];
+  if (hit) {
+    return JSON.parse(JSON.stringify(hit)) as AI1SceneStrategyDraft;
+  }
+  const base = AI1_DEFAULT_SCENE_STRATEGY_DRAFTS.default;
+  const label = AI1_BUILTIN_SCENE_LABELS[key] || key;
+  return {
+    ...JSON.parse(JSON.stringify(base)),
+    scene_label: label,
+  } as AI1SceneStrategyDraft;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function splitTagText(value: string): string[] {
+  const text = (value || "").trim();
+  if (!text) return [];
+  return text
+    .split(/[\n,，;；]+/g)
+    .map((item) => item.trim())
+    .filter((item, index, array) => item && array.indexOf(item) === index)
+    .slice(0, 16);
+}
+
+function joinTagText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((item) => String(item || "").trim())
+    .filter((item, index, array) => item && array.indexOf(item) === index)
+    .slice(0, 16)
+    .join("\n");
+}
+
+function normalizeWeight(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if (lower === "true" || lower === "1") return true;
+    if (lower === "false" || lower === "0") return false;
+  }
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  return fallback;
+}
+
+function normalizeBlurTolerance(value: unknown, fallback: "low" | "medium" | "high"): "low" | "medium" | "high" {
+  const lower = String(value || "").trim().toLowerCase();
+  if (lower === "low" || lower === "medium" || lower === "high") return lower;
+  return fallback;
+}
+
+function parseAI1SceneStrategyDraftsFromSchema(
+  schema?: Record<string, unknown>,
+): { version: string; drafts: Record<AI1SceneKey, AI1SceneStrategyDraft> } {
+  const drafts = deepCloneAI1SceneStrategyDrafts();
+  const schemaRoot = asRecord(schema?.scene_strategies_v1) || asRecord(schema?.scene_strategies) || null;
+  const root = schemaRoot || {};
+  const version = String((root.version as string) || "png_scene_strategy_v1").trim() || "png_scene_strategy_v1";
+  const sceneContainer = asRecord(root.scenes) || root;
+
+  Object.entries(sceneContainer || {}).forEach(([rawSceneKey, rawValue]) => {
+    const entry = asRecord(rawValue);
+    if (!entry) return;
+    const sceneKey = normalizeAI1SceneKey(String(entry.scene || entry.scenario || rawSceneKey || ""));
+    if (!sceneKey || sceneKey === "version") return;
+    const technicalReject = asRecord(entry.technical_reject) || {};
+    const qualityWeights = asRecord(entry.quality_weights) || {};
+    const candidateCountBias = asRecord(entry.candidate_count_bias) || {};
+    const base = drafts[sceneKey] || getAI1DefaultSceneDraft(sceneKey);
+    drafts[sceneKey] = {
+      scene_label: String((entry.scene_label as string) || base.scene_label).trim() || base.scene_label,
+      business_goal: String((entry.business_goal as string) || base.business_goal).trim() || base.business_goal,
+      audience: String((entry.audience as string) || base.audience).trim() || base.audience,
+      operator_identity:
+        String((entry.operator_identity as string) || base.operator_identity).trim() || base.operator_identity,
+      style_direction: String((entry.style_direction as string) || base.style_direction).trim() || base.style_direction,
+      candidate_count_min: Math.max(
+        1,
+        Math.round(
+          Number(candidateCountBias.min ?? entry.candidate_count_min ?? base.candidate_count_min) || base.candidate_count_min
+        )
+      ),
+      candidate_count_max: Math.max(
+        1,
+        Math.round(
+          Number(candidateCountBias.max ?? entry.candidate_count_max ?? base.candidate_count_max) || base.candidate_count_max
+        )
+      ),
+      directive_hint: String((entry.directive_hint as string) || base.directive_hint).trim() || base.directive_hint,
+      must_capture_bias_text: joinTagText(entry.must_capture_bias) || base.must_capture_bias_text,
+      avoid_bias_text: joinTagText(entry.avoid_bias) || base.avoid_bias_text,
+      risk_flags_text: joinTagText(entry.risk_flags) || base.risk_flags_text,
+      enabled: normalizeBoolean(entry.enabled, base.enabled),
+      quality_semantic: normalizeWeight(qualityWeights.semantic, base.quality_semantic),
+      quality_clarity: normalizeWeight(qualityWeights.clarity, base.quality_clarity),
+      quality_loop: normalizeWeight(qualityWeights.loop, base.quality_loop),
+      quality_efficiency: normalizeWeight(qualityWeights.efficiency, base.quality_efficiency),
+      max_blur_tolerance: normalizeBlurTolerance(technicalReject.max_blur_tolerance, base.max_blur_tolerance),
+      avoid_watermarks: normalizeBoolean(technicalReject.avoid_watermarks, base.avoid_watermarks),
+      avoid_extreme_dark: normalizeBoolean(technicalReject.avoid_extreme_dark, base.avoid_extreme_dark),
+    };
+    if (drafts[sceneKey].candidate_count_max < drafts[sceneKey].candidate_count_min) {
+      drafts[sceneKey].candidate_count_max = drafts[sceneKey].candidate_count_min;
+    }
+  });
+
+  return { version, drafts };
+}
+
+function normalizeSceneQualityWeights(draft: AI1SceneStrategyDraft, fallback: AI1SceneStrategyDraft) {
+  const semantic = Math.max(0, Number(draft.quality_semantic) || 0);
+  const clarity = Math.max(0, Number(draft.quality_clarity) || 0);
+  const loop = Math.max(0, Number(draft.quality_loop) || 0);
+  const efficiency = Math.max(0, Number(draft.quality_efficiency) || 0);
+  const sum = semantic + clarity + loop + efficiency;
+  if (sum <= 0) {
+    const fallbackSum =
+      fallback.quality_semantic + fallback.quality_clarity + fallback.quality_loop + fallback.quality_efficiency;
+    return {
+      semantic: Number((fallback.quality_semantic / fallbackSum).toFixed(4)),
+      clarity: Number((fallback.quality_clarity / fallbackSum).toFixed(4)),
+      loop: Number((fallback.quality_loop / fallbackSum).toFixed(4)),
+      efficiency: Number((fallback.quality_efficiency / fallbackSum).toFixed(4)),
+    };
+  }
+  return {
+    semantic: Number((semantic / sum).toFixed(4)),
+    clarity: Number((clarity / sum).toFixed(4)),
+    loop: Number((loop / sum).toFixed(4)),
+    efficiency: Number((efficiency / sum).toFixed(4)),
+  };
+}
+
+function buildAI1SceneStrategyTemplateSchema(
+  version: string,
+  drafts: Record<AI1SceneKey, AI1SceneStrategyDraft>,
+): Record<string, unknown> {
+  const scenes: Record<string, unknown> = {};
+  Object.entries(drafts || {}).forEach(([rawSceneKey, rawDraft]) => {
+    const sceneKey = normalizeAI1SceneKey(rawSceneKey);
+    if (!sceneKey) return;
+    const draft = rawDraft || getAI1DefaultSceneDraft(sceneKey);
+    const fallbackDraft = AI1_DEFAULT_SCENE_STRATEGY_DRAFTS[sceneKey] || AI1_DEFAULT_SCENE_STRATEGY_DRAFTS.default;
+    const candidateCountMin = Math.max(1, Math.round(Number(draft.candidate_count_min) || fallbackDraft.candidate_count_min));
+    const candidateCountMax = Math.max(candidateCountMin, Math.round(Number(draft.candidate_count_max) || fallbackDraft.candidate_count_max));
+    scenes[sceneKey] = {
+      scene: sceneKey,
+      enabled: normalizeBoolean(draft.enabled, true),
+      scene_label: draft.scene_label.trim() || fallbackDraft.scene_label,
+      business_goal: draft.business_goal.trim() || fallbackDraft.business_goal,
+      audience: draft.audience.trim() || fallbackDraft.audience,
+      operator_identity: draft.operator_identity.trim() || fallbackDraft.operator_identity,
+      style_direction: draft.style_direction.trim() || fallbackDraft.style_direction,
+      candidate_count_bias: {
+        min: candidateCountMin,
+        max: candidateCountMax,
+      },
+      directive_hint: draft.directive_hint.trim() || fallbackDraft.directive_hint,
+      must_capture_bias: splitTagText(draft.must_capture_bias_text),
+      avoid_bias: splitTagText(draft.avoid_bias_text),
+      risk_flags: splitTagText(draft.risk_flags_text),
+      quality_weights: normalizeSceneQualityWeights(draft, fallbackDraft),
+      technical_reject: {
+        max_blur_tolerance: normalizeBlurTolerance(draft.max_blur_tolerance, fallbackDraft.max_blur_tolerance),
+        avoid_watermarks: !!draft.avoid_watermarks,
+        avoid_extreme_dark: !!draft.avoid_extreme_dark,
+      },
+    };
+  });
+  return {
+    scene_strategies_v1: {
+      version: version.trim() || "png_scene_strategy_v1",
+      scenes,
+    },
+  };
+}
 
 function normalizeQualityFormatScope(value?: string): QualityFormatScope {
   const lower = (value || "").trim().toLowerCase();
@@ -730,9 +1135,26 @@ export default function Page() {
   const [ai1EditableEnabled, setAi1EditableEnabled] = useState(true);
   const [ai1EditableVersion, setAi1EditableVersion] = useState("v1");
   const [ai1EditableText, setAi1EditableText] = useState("");
+  const [ai1EditableTemplateSchema, setAi1EditableTemplateSchema] = useState<Record<string, unknown>>({});
+  const [ai1SceneStrategyVersion, setAi1SceneStrategyVersion] = useState("png_scene_strategy_v1");
+  const [ai1SceneStrategyDrafts, setAi1SceneStrategyDrafts] =
+    useState<Record<AI1SceneKey, AI1SceneStrategyDraft>>(deepCloneAI1SceneStrategyDrafts());
+  const [ai1SceneStrategyScene, setAi1SceneStrategyScene] = useState<AI1SceneKey>("default");
+  const [ai1NewSceneKey, setAi1NewSceneKey] = useState("");
+  const [ai1NewSceneLabel, setAi1NewSceneLabel] = useState("");
+  const [ai1SceneStrategyError, setAi1SceneStrategyError] = useState<string | null>(null);
+  const [ai1SceneStrategySuccess, setAi1SceneStrategySuccess] = useState<string | null>(null);
   const [ai1ConstraintJSON, setAi1ConstraintJSON] = useState("");
   const [ai1ConstraintError, setAi1ConstraintError] = useState<string | null>(null);
   const [ai1ConstraintSuccess, setAi1ConstraintSuccess] = useState<string | null>(null);
+  const [splitBackfillStatus, setSplitBackfillStatus] = useState<AdminVideoImageSplitBackfillStatus | null>(null);
+  const [splitBackfillLoading, setSplitBackfillLoading] = useState(false);
+  const [splitBackfillStarting, setSplitBackfillStarting] = useState(false);
+  const [splitBackfillStopping, setSplitBackfillStopping] = useState(false);
+  const [splitBackfillApply, setSplitBackfillApply] = useState(false);
+  const [splitBackfillBatchSize, setSplitBackfillBatchSize] = useState("500");
+  const [splitBackfillFormat, setSplitBackfillFormat] = useState<QualityFormatScope>("all");
+  const [splitBackfillTables, setSplitBackfillTables] = useState("jobs,outputs,packages,events,feedbacks");
 
   const activeQualityFormat = normalizeQualityFormatScope(lockedQualityFormat || qualityFormat);
   const qualityTitle = QUALITY_SCOPE_TITLES[activeQualityFormat] || "视频转图质量";
@@ -746,11 +1168,114 @@ export default function Page() {
     });
   })();
   const dirtyCount = dirtyKeys.length;
+  const splitBackfillReport = splitBackfillStatus?.report || null;
+  const splitBackfillLease = splitBackfillStatus?.lease || null;
+  const splitBackfillRows = [
+    { key: "jobs", label: "Jobs", stats: splitBackfillReport?.jobs },
+    { key: "outputs", label: "Outputs", stats: splitBackfillReport?.outputs },
+    { key: "packages", label: "Packages", stats: splitBackfillReport?.packages },
+    { key: "events", label: "Events", stats: splitBackfillReport?.events },
+    { key: "feedbacks", label: "Feedbacks", stats: splitBackfillReport?.feedbacks },
+  ];
 
   const findTemplate = (stage: PromptTemplateStage, layer: PromptTemplateLayer) => {
     return templateItems.find((item) => {
       return normalizePromptTemplateStage(item.stage) === stage && normalizePromptTemplateLayer(item.layer) === layer;
     });
+  };
+
+  const ai1SceneOptions = useMemo(() => {
+    const keys = new Set<string>(["default"]);
+    AI1_SCENE_OPTIONS.forEach((item) => keys.add(item.value));
+    Object.keys(ai1SceneStrategyDrafts || {}).forEach((item) => {
+      const normalized = normalizeAI1SceneKey(item);
+      if (normalized) keys.add(normalized);
+    });
+    return Array.from(keys).map((sceneKey) => {
+      const draft = ai1SceneStrategyDrafts[sceneKey] || getAI1DefaultSceneDraft(sceneKey);
+      return {
+        value: sceneKey,
+        label: draft.scene_label || AI1_BUILTIN_SCENE_LABELS[sceneKey] || sceneKey,
+        description:
+          AI1_BUILTIN_SCENE_DESCRIPTIONS[sceneKey] || `自定义场景（scene_key=${sceneKey}）`,
+        enabled: normalizeBoolean(draft.enabled, true),
+        isCustom: !AI1_BUILTIN_SCENE_LABELS[sceneKey],
+      };
+    });
+  }, [ai1SceneStrategyDrafts]);
+
+  const currentSceneDraft = ai1SceneStrategyDrafts[ai1SceneStrategyScene] || getAI1DefaultSceneDraft(ai1SceneStrategyScene);
+
+  const updateCurrentSceneDraft = (patch: Partial<AI1SceneStrategyDraft>) => {
+    setAi1SceneStrategyDrafts((prev) => ({
+      ...prev,
+      [ai1SceneStrategyScene]: {
+        ...(prev[ai1SceneStrategyScene] || getAI1DefaultSceneDraft(ai1SceneStrategyScene)),
+        ...patch,
+      },
+    }));
+    setAi1SceneStrategyError(null);
+    setAi1SceneStrategySuccess(null);
+  };
+
+  const resetCurrentSceneDraft = () => {
+    setAi1SceneStrategyDrafts((prev) => ({
+      ...prev,
+      [ai1SceneStrategyScene]: { ...getAI1DefaultSceneDraft(ai1SceneStrategyScene) },
+    }));
+    setAi1SceneStrategyError(null);
+    setAi1SceneStrategySuccess(`已重置「${ai1SceneOptions.find((x) => x.value === ai1SceneStrategyScene)?.label || "当前场景"}」策略。`);
+  };
+
+  const resetAllSceneDrafts = () => {
+    setAi1SceneStrategyDrafts(deepCloneAI1SceneStrategyDrafts());
+    setAi1SceneStrategyScene("default");
+    setAi1NewSceneKey("");
+    setAi1NewSceneLabel("");
+    setAi1SceneStrategyVersion("png_scene_strategy_v1");
+    setAi1SceneStrategyError(null);
+    setAi1SceneStrategySuccess("已重置全部场景策略为系统默认。");
+  };
+
+  const addCustomSceneDraft = () => {
+    const sceneKey = normalizeAI1SceneKey(ai1NewSceneKey);
+    if (!sceneKey) {
+      setAi1SceneStrategyError("请填写合法的 scene_key（仅英文/数字/下划线）。");
+      return;
+    }
+    if (sceneKey === "all") {
+      setAi1SceneStrategyError("scene_key 不能为 all。");
+      return;
+    }
+    const base = getAI1DefaultSceneDraft(sceneKey);
+    const label = (ai1NewSceneLabel || "").trim() || sceneKey;
+    setAi1SceneStrategyDrafts((prev) => ({
+      ...prev,
+      [sceneKey]: {
+        ...(prev[sceneKey] || base),
+        scene_label: label,
+      },
+    }));
+    setAi1SceneStrategyScene(sceneKey);
+    setAi1NewSceneKey("");
+    setAi1NewSceneLabel("");
+    setAi1SceneStrategyError(null);
+    setAi1SceneStrategySuccess(`已新增场景「${label}」（scene_key=${sceneKey}）。`);
+  };
+
+  const removeCurrentCustomScene = () => {
+    if (AI1_BUILTIN_SCENE_LABELS[ai1SceneStrategyScene]) {
+      setAi1SceneStrategyError("内置场景不允许删除，可使用“重置当前场景”。");
+      return;
+    }
+    setAi1SceneStrategyDrafts((prev) => {
+      const next = { ...prev };
+      delete next[ai1SceneStrategyScene];
+      return next;
+    });
+    setAi1SceneStrategyScene("default");
+    setAi1SceneStrategyError(null);
+    setAi1SceneStrategySuccess(`已删除自定义场景 ${ai1SceneStrategyScene}。`);
   };
 
   const applyProfilePreset = (preset: "clarity" | "size") => {
@@ -764,7 +1289,7 @@ export default function Page() {
     }));
   };
 
-  const loadPromptTemplates = async (format: PromptTemplateFormat) => {
+  const loadPromptTemplates = useCallback(async (format: PromptTemplateFormat) => {
     setTemplateLoading(true);
     setTemplateError(null);
     setTemplateSuccess(null);
@@ -780,6 +1305,17 @@ export default function Page() {
       setAi1EditableEnabled(ai1Editable?.enabled ?? true);
       setAi1EditableVersion((ai1Editable?.version || "v1").trim() || "v1");
       setAi1EditableText(ai1Editable?.template_text || "");
+      const editableSchema = (ai1Editable?.template_json_schema || {}) as Record<string, unknown>;
+      setAi1EditableTemplateSchema(editableSchema);
+      const parsedSceneStrategy = parseAI1SceneStrategyDraftsFromSchema(editableSchema);
+      setAi1SceneStrategyVersion(parsedSceneStrategy.version);
+      setAi1SceneStrategyDrafts(parsedSceneStrategy.drafts);
+      setAi1SceneStrategyScene((prev) => {
+        if (parsedSceneStrategy.drafts[prev]) return prev;
+        return parsedSceneStrategy.drafts.default ? "default" : Object.keys(parsedSceneStrategy.drafts)[0] || "default";
+      });
+      setAi1SceneStrategyError(null);
+      setAi1SceneStrategySuccess(null);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "加载 AI 模板失败";
       setTemplateError(message);
@@ -787,12 +1323,17 @@ export default function Page() {
       setAi1EditableEnabled(true);
       setAi1EditableVersion("v1");
       setAi1EditableText("");
+      setAi1EditableTemplateSchema({});
+      setAi1SceneStrategyVersion("png_scene_strategy_v1");
+      setAi1SceneStrategyDrafts(deepCloneAI1SceneStrategyDrafts());
+      setAi1SceneStrategyError(null);
+      setAi1SceneStrategySuccess(null);
     } finally {
       setTemplateLoading(false);
     }
-  };
+  }, []);
 
-  const loadPromptTemplateAudits = async (format: PromptTemplateFormat, tab: PromptTemplateTabKey) => {
+  const loadPromptTemplateAudits = useCallback(async (format: PromptTemplateFormat, tab: PromptTemplateTabKey) => {
     setTemplateAuditsLoading(true);
     try {
       const stage = tab;
@@ -811,9 +1352,9 @@ export default function Page() {
     } finally {
       setTemplateAuditsLoading(false);
     }
-  };
+  }, []);
 
-  const loadPromptTemplateVersions = async (format: PromptTemplateFormat, tab: PromptTemplateTabKey) => {
+  const loadPromptTemplateVersions = useCallback(async (format: PromptTemplateFormat, tab: PromptTemplateTabKey) => {
     const stage = tab;
     const layer: PromptTemplateLayer = tab === "ai1" ? "fixed" : "fixed";
     setTemplateVersionsLoading(true);
@@ -837,7 +1378,7 @@ export default function Page() {
     } finally {
       setTemplateVersionsLoading(false);
     }
-  };
+  }, []);
 
   const activateFixedTemplateVersion = async () => {
     const stage = templateTab;
@@ -879,6 +1420,7 @@ export default function Page() {
   };
 
   const saveAI1EditableTemplate = async () => {
+    const canEditSceneStrategy = templateFormat === "png" || templateFormat === "all";
     if (!ai1EditableVersion.trim()) {
       setTemplateError("AI1 可编辑层版本不能为空。");
       setTemplateSuccess(null);
@@ -894,10 +1436,35 @@ export default function Page() {
       setTemplateSuccess(null);
       return;
     }
+    if (canEditSceneStrategy) {
+      if (!ai1SceneStrategyVersion.trim()) {
+        setTemplateError("PNG 场景策略版本不能为空。");
+        setTemplateSuccess(null);
+        return;
+      }
+      if (ai1SceneStrategyVersion.trim().length > 64) {
+        setTemplateError("PNG 场景策略版本长度不能超过 64 个字符。");
+        setTemplateSuccess(null);
+        return;
+      }
+    }
     setTemplateSaving(true);
     setTemplateError(null);
     setTemplateSuccess(null);
+    setAi1SceneStrategyError(null);
+    setAi1SceneStrategySuccess(null);
     try {
+      const sceneStrategySchema = canEditSceneStrategy
+        ? buildAI1SceneStrategyTemplateSchema(ai1SceneStrategyVersion, ai1SceneStrategyDrafts)
+        : {};
+      const mergedTemplateSchema: Record<string, unknown> = canEditSceneStrategy
+        ? {
+            ...(ai1EditableTemplateSchema || {}),
+            ...sceneStrategySchema,
+          }
+        : {
+            ...(ai1EditableTemplateSchema || {}),
+          };
       const payload = {
         format: templateFormat,
         items: [
@@ -907,6 +1474,7 @@ export default function Page() {
             enabled: ai1EditableEnabled,
             version: ai1EditableVersion.trim(),
             template_text: ai1EditableText,
+            template_json_schema: mergedTemplateSchema,
           },
         ],
       };
@@ -925,11 +1493,22 @@ export default function Page() {
       setAi1EditableEnabled(updated?.enabled ?? ai1EditableEnabled);
       setAi1EditableVersion((updated?.version || ai1EditableVersion).trim() || "v1");
       setAi1EditableText(updated?.template_text ?? ai1EditableText);
+      const updatedSchema = (updated?.template_json_schema || mergedTemplateSchema) as Record<string, unknown>;
+      setAi1EditableTemplateSchema(updatedSchema);
+      const parsedSceneStrategy = parseAI1SceneStrategyDraftsFromSchema(updatedSchema);
+      setAi1SceneStrategyVersion(parsedSceneStrategy.version);
+      setAi1SceneStrategyDrafts(parsedSceneStrategy.drafts);
       await loadPromptTemplateAudits(templateFormat, templateTab);
       setTemplateSuccess(`AI1 可编辑层模板已保存（format=${templateFormat}）。`);
+      if (canEditSceneStrategy) {
+        setAi1SceneStrategySuccess("PNG 场景策略组已同步保存。");
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "保存 AI1 可编辑层失败";
       setTemplateError(message);
+      if (canEditSceneStrategy) {
+        setAi1SceneStrategyError(message);
+      }
     } finally {
       setTemplateSaving(false);
     }
@@ -1057,6 +1636,86 @@ export default function Page() {
     }
   };
 
+  const loadSplitBackfillStatus = useCallback(async (silent = false) => {
+    if (!silent) setSplitBackfillLoading(true);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/split-backfill`);
+      if (!res.ok) throw new Error(await parseApiError(res, "加载分表回填状态失败"));
+      const data = (await res.json()) as AdminVideoImageSplitBackfillStatus;
+      setSplitBackfillStatus(data);
+    } catch (err: unknown) {
+      if (!silent) {
+        const message = err instanceof Error ? err.message : "加载分表回填状态失败";
+        setError(message);
+      }
+    } finally {
+      if (!silent) setSplitBackfillLoading(false);
+    }
+  }, []);
+
+  const startSplitBackfill = async () => {
+    setSplitBackfillStarting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const batchSize = Math.max(1, Math.min(5000, Number(splitBackfillBatchSize || 0) || 500));
+      const payload = {
+        apply: splitBackfillApply,
+        batch_size: batchSize,
+        format: splitBackfillFormat === "all" ? "" : splitBackfillFormat,
+        tables: splitBackfillTables.trim() || "jobs,outputs,packages,events,feedbacks",
+      };
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/split-backfill/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | AdminVideoImageSplitBackfillStatus
+        | { error?: string; status?: AdminVideoImageSplitBackfillStatus }
+        | null;
+      if (!res.ok) {
+        if (data && typeof data === "object" && "status" in data && data.status) {
+          setSplitBackfillStatus(data.status);
+        }
+        throw new Error(
+          (data && typeof data === "object" && "error" in data && data.error ? data.error : "") || "启动分表回填失败"
+        );
+      }
+      if (data && typeof data === "object" && "running" in data) {
+        setSplitBackfillStatus(data as AdminVideoImageSplitBackfillStatus);
+      } else {
+        await loadSplitBackfillStatus(true);
+      }
+      setSuccess("分表回填任务已启动。");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "启动分表回填失败";
+      setError(message);
+    } finally {
+      setSplitBackfillStarting(false);
+    }
+  };
+
+  const stopSplitBackfill = async () => {
+    setSplitBackfillStopping(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/split-backfill/stop`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "停止分表回填失败"));
+      const data = (await res.json()) as AdminVideoImageSplitBackfillStatus;
+      setSplitBackfillStatus(data);
+      setSuccess("已发送停止信号。");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "停止分表回填失败";
+      setError(message);
+    } finally {
+      setSplitBackfillStopping(false);
+    }
+  };
+
   useEffect(() => {
     if (!lockedQualityFormat) {
       return;
@@ -1131,15 +1790,23 @@ export default function Page() {
 
   useEffect(() => {
     void loadPromptTemplates(templateFormat);
-  }, [templateFormat]);
+  }, [templateFormat, loadPromptTemplates]);
 
   useEffect(() => {
     void loadPromptTemplateAudits(templateFormat, templateTab);
-  }, [templateFormat, templateTab]);
+  }, [templateFormat, templateTab, loadPromptTemplateAudits]);
 
   useEffect(() => {
     void loadPromptTemplateVersions(templateFormat, templateTab);
-  }, [templateFormat, templateTab]);
+  }, [templateFormat, templateTab, loadPromptTemplateVersions]);
+
+  useEffect(() => {
+    void loadSplitBackfillStatus();
+    const timer = window.setInterval(() => {
+      void loadSplitBackfillStatus(true);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [loadSplitBackfillStatus]);
 
   const save = async () => {
     if (!baseForm) {
@@ -1258,6 +1925,235 @@ export default function Page() {
           当前处于只读保护：配置未成功从后端加载，已禁用保存，避免默认值覆盖线上参数。
         </div>
       ) : null}
+
+      <div className="space-y-3 rounded-3xl border border-cyan-100 bg-cyan-50/40 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-cyan-800">历史任务分表回填（base → format split）</h3>
+            <p className="mt-1 text-xs text-cyan-700/80">
+              用于将旧数据迁移到各格式独立分表，支持 dry-run / apply、可停止、可断点续跑。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                splitBackfillStatus?.running ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"
+              }`}
+            >
+              {splitBackfillStatus?.running ? "运行中" : "空闲"}
+            </span>
+            {splitBackfillStatus?.stop_requested ? (
+              <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">停止中</span>
+            ) : null}
+            {splitBackfillReport?.stopped ? (
+              <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">已停止</span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-12">
+          <label className="flex items-center gap-2 rounded-xl border border-cyan-200 bg-white px-3 py-2 text-xs text-slate-700 md:col-span-2">
+            <input
+              type="checkbox"
+              checked={splitBackfillApply}
+              onChange={(e) => setSplitBackfillApply(e.target.checked)}
+              disabled={Boolean(splitBackfillStatus?.running)}
+            />
+            apply 写入
+          </label>
+          <input
+            value={splitBackfillBatchSize}
+            onChange={(e) => setSplitBackfillBatchSize(e.target.value)}
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 md:col-span-2"
+            placeholder="batch-size"
+            disabled={Boolean(splitBackfillStatus?.running)}
+          />
+          <select
+            value={splitBackfillFormat}
+            onChange={(e) => setSplitBackfillFormat(normalizeQualityFormatScope(e.target.value))}
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 md:col-span-2"
+            disabled={Boolean(splitBackfillStatus?.running)}
+          >
+            <option value="all">格式：all</option>
+            <option value="gif">格式：gif</option>
+            <option value="png">格式：png</option>
+            <option value="jpg">格式：jpg</option>
+            <option value="webp">格式：webp</option>
+            <option value="live">格式：live</option>
+            <option value="mp4">格式：mp4</option>
+          </select>
+          <input
+            value={splitBackfillTables}
+            onChange={(e) => setSplitBackfillTables(e.target.value)}
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 md:col-span-3"
+            placeholder="jobs,outputs,packages,events,feedbacks"
+            disabled={Boolean(splitBackfillStatus?.running)}
+          />
+          <button
+            type="button"
+            className="rounded-xl bg-cyan-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-700 disabled:opacity-60 md:col-span-1"
+            onClick={() => void startSplitBackfill()}
+            disabled={splitBackfillStarting || Boolean(splitBackfillStatus?.running)}
+          >
+            {splitBackfillStarting ? "启动中..." : "启动"}
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-60 md:col-span-1"
+            onClick={() => void stopSplitBackfill()}
+            disabled={splitBackfillStopping || !Boolean(splitBackfillStatus?.running)}
+          >
+            {splitBackfillStopping ? "停止中..." : "停止"}
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 md:col-span-1"
+            onClick={() => void loadSplitBackfillStatus()}
+            disabled={splitBackfillLoading}
+          >
+            刷新
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+          <span>RunID: {splitBackfillStatus?.run_id || "-"}</span>
+          <span>开始: {formatTime(splitBackfillStatus?.started_at || splitBackfillReport?.started_at)}</span>
+          <span>心跳: {formatTime(splitBackfillStatus?.heartbeat_at)}</span>
+          <span>结束: {formatTime(splitBackfillStatus?.finished_at || splitBackfillReport?.finished_at)}</span>
+          <span>执行人: #{splitBackfillStatus?.requested_by || 0}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+          <span>运行实例: {splitBackfillLease?.owner_instance || "-"}</span>
+          <span>租约到期: {formatTime(splitBackfillLease?.expires_at)}</span>
+          <span>
+            租约剩余:
+            {splitBackfillStatus?.running
+              ? `${Math.max(0, Number(splitBackfillLease?.remaining_seconds || 0)).toLocaleString()}s`
+              : "-"}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${
+              splitBackfillLease?.can_takeover ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {splitBackfillLease?.can_takeover ? "可接管" : "租约有效"}
+          </span>
+          {splitBackfillLease?.is_local_owner ? (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700">本实例持有</span>
+          ) : null}
+          <span>超时阈值: {Number(splitBackfillLease?.timeout_seconds || 0)}s</span>
+        </div>
+
+        {splitBackfillStatus?.last_error ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            最近错误：{splitBackfillStatus.last_error}
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto rounded-2xl border border-cyan-100 bg-white">
+          <table className="min-w-full text-xs">
+            <thead className="bg-cyan-50 text-slate-600">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold">表</th>
+                <th className="px-3 py-2 text-right font-semibold">scanned</th>
+                <th className="px-3 py-2 text-right font-semibold">would_write</th>
+                <th className="px-3 py-2 text-right font-semibold">written</th>
+                <th className="px-3 py-2 text-right font-semibold">skipped</th>
+                <th className="px-3 py-2 text-right font-semibold">fallback</th>
+                <th className="px-3 py-2 text-right font-semibold">failed</th>
+                <th className="px-3 py-2 text-right font-semibold">last_id</th>
+              </tr>
+            </thead>
+            <tbody>
+              {splitBackfillRows.map((item) => (
+                <tr key={item.key} className="border-t border-cyan-50 text-slate-700">
+                  <td className="px-3 py-2 font-semibold">{item.label}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.scanned || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.would_write || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.written || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.skipped_by_format || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.fallback_used || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.failed || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.last_id || 0).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-cyan-100 bg-white">
+          <table className="min-w-full text-xs">
+            <thead className="bg-cyan-50 text-slate-600">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold">最近执行</th>
+                <th className="px-3 py-2 text-left font-semibold">状态</th>
+                <th className="px-3 py-2 text-left font-semibold">参数</th>
+                <th className="px-3 py-2 text-right font-semibold">written</th>
+                <th className="px-3 py-2 text-right font-semibold">failed</th>
+                <th className="px-3 py-2 text-left font-semibold">开始/结束</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(splitBackfillStatus?.history || []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-slate-500" colSpan={6}>
+                    暂无历史执行记录
+                  </td>
+                </tr>
+              ) : (
+                (splitBackfillStatus?.history || []).map((item, idx) => {
+                  const status = (item.status || "").toLowerCase();
+                  const statusClass =
+                    status === "done"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : status === "stopped"
+                        ? "bg-amber-100 text-amber-700"
+                        : status === "done_with_errors"
+                          ? "bg-orange-100 text-orange-700"
+                          : "bg-rose-100 text-rose-700";
+                  const totalWritten =
+                    Number(item.report?.jobs?.written || 0) +
+                    Number(item.report?.outputs?.written || 0) +
+                    Number(item.report?.packages?.written || 0) +
+                    Number(item.report?.events?.written || 0) +
+                    Number(item.report?.feedbacks?.written || 0);
+                  const totalFailed =
+                    Number(item.report?.jobs?.failed || 0) +
+                    Number(item.report?.outputs?.failed || 0) +
+                    Number(item.report?.packages?.failed || 0) +
+                    Number(item.report?.events?.failed || 0) +
+                    Number(item.report?.feedbacks?.failed || 0);
+                  return (
+                    <tr key={`${item.run_id || "history"}-${idx}`} className="border-t border-cyan-50 text-slate-700">
+                      <td className="px-3 py-2">
+                        <div className="font-semibold">{item.run_id || "-"}</div>
+                        <div className="text-[11px] text-slate-500">admin #{item.requested_by || 0}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}>
+                          {status || "unknown"}
+                        </span>
+                        {item.last_error ? <div className="mt-1 text-[11px] text-rose-600">{item.last_error}</div> : null}
+                      </td>
+                      <td className="px-3 py-2 text-[11px] text-slate-600">
+                        format={item.options?.format || "all"} · apply={item.options?.apply ? "1" : "0"}
+                        <br />
+                        batch={item.options?.batch_size || 0} · tables={item.options?.tables || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right">{totalWritten.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right">{totalFailed.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-[11px] text-slate-600">
+                        <div>{formatTime(item.started_at)}</div>
+                        <div>{formatTime(item.finished_at)}</div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div className="space-y-4 rounded-3xl border border-indigo-100 bg-indigo-50/40 p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1437,6 +2333,348 @@ export default function Page() {
                 </li>
               </ul>
             </div>
+
+            {templateFormat === "png" || templateFormat === "all" ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 text-xs text-violet-800">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-semibold">PNG 场景策略组（AI1 动态提示词与运营规则）</div>
+                  <div className="mt-1 text-[11px] text-violet-800/80">
+                    用于覆盖 AI1 的场景化策略（优先级：任务参数 {'>'} 场景策略 {'>'} 内置默认）。
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] text-violet-700">
+                    <span className="mr-1">策略版本</span>
+                    <input
+                      type="text"
+                      value={ai1SceneStrategyVersion}
+                      onChange={(e) => {
+                        setAi1SceneStrategyVersion(e.target.value);
+                        setAi1SceneStrategyError(null);
+                        setAi1SceneStrategySuccess(null);
+                      }}
+                      className="w-[180px] rounded-lg border border-violet-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-violet-500"
+                      placeholder="png_scene_strategy_v1"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={resetAllSceneDrafts}
+                    className="rounded-lg border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-100"
+                  >
+                    重置全部
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {ai1SceneOptions.map((scene) => {
+                  const active = scene.value === ai1SceneStrategyScene;
+                  return (
+                    <button
+                      key={scene.value}
+                      type="button"
+                      onClick={() => setAi1SceneStrategyScene(scene.value)}
+                      className={
+                        active
+                          ? "rounded-lg border border-violet-300 bg-violet-600 px-3 py-1.5 text-[11px] font-semibold text-white"
+                          : "rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-100"
+                      }
+                    >
+                      <span>{scene.label}</span>
+                      <span
+                        className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                          scene.enabled ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                        }`}
+                      >
+                        {scene.enabled ? "已上线" : "测试中"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 text-[11px] text-violet-800/75">
+                {ai1SceneOptions.find((item) => item.value === ai1SceneStrategyScene)?.description || ""}
+              </div>
+
+              <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3">
+                <div className="text-[11px] font-semibold text-violet-700">新增自定义场景（scene_key）</div>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <input
+                    type="text"
+                    value={ai1NewSceneKey}
+                    onChange={(e) => setAi1NewSceneKey(e.target.value)}
+                    className="rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    placeholder="例如：ecom_cover"
+                  />
+                  <input
+                    type="text"
+                    value={ai1NewSceneLabel}
+                    onChange={(e) => setAi1NewSceneLabel(e.target.value)}
+                    className="rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    placeholder="展示名称（可选）"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomSceneDraft}
+                    className="rounded-lg border border-violet-300 bg-violet-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-500"
+                  >
+                    新增场景
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">场景显示名称</span>
+                  <input
+                    type="text"
+                    value={currentSceneDraft.scene_label}
+                    onChange={(e) => updateCurrentSceneDraft({ scene_label: e.target.value })}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">运营身份设定（operator_identity）</span>
+                  <input
+                    type="text"
+                    value={currentSceneDraft.operator_identity}
+                    onChange={(e) => updateCurrentSceneDraft({ operator_identity: e.target.value })}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">业务目标（business_goal）</span>
+                  <input
+                    type="text"
+                    value={currentSceneDraft.business_goal}
+                    onChange={(e) => updateCurrentSceneDraft({ business_goal: e.target.value })}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">目标受众（audience）</span>
+                  <input
+                    type="text"
+                    value={currentSceneDraft.audience}
+                    onChange={(e) => updateCurrentSceneDraft({ audience: e.target.value })}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">风格方向（style_direction）</span>
+                  <input
+                    type="text"
+                    value={currentSceneDraft.style_direction}
+                    onChange={(e) => updateCurrentSceneDraft({ style_direction: e.target.value })}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">建议候选数量最小值（candidate_count_bias.min）</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={80}
+                    value={currentSceneDraft.candidate_count_min}
+                    onChange={(e) =>
+                      updateCurrentSceneDraft({ candidate_count_min: Math.max(1, Math.round(Number(e.target.value) || 1)) })
+                    }
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">建议候选数量最大值（candidate_count_bias.max）</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={80}
+                    value={currentSceneDraft.candidate_count_max}
+                    onChange={(e) =>
+                      updateCurrentSceneDraft({ candidate_count_max: Math.max(1, Math.round(Number(e.target.value) || 1)) })
+                    }
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+              </div>
+
+              <label className="mt-3 block space-y-1">
+                <span className="text-[11px] text-violet-700">导演提示（directive_hint）</span>
+                <input
+                  type="text"
+                  value={currentSceneDraft.directive_hint}
+                  onChange={(e) => updateCurrentSceneDraft({ directive_hint: e.target.value })}
+                  className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-500"
+                />
+              </label>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">必须捕捉（每行一条）</span>
+                  <textarea
+                    value={currentSceneDraft.must_capture_bias_text}
+                    onChange={(e) => updateCurrentSceneDraft({ must_capture_bias_text: e.target.value })}
+                    rows={6}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">规避项（每行一条）</span>
+                  <textarea
+                    value={currentSceneDraft.avoid_bias_text}
+                    onChange={(e) => updateCurrentSceneDraft({ avoid_bias_text: e.target.value })}
+                    rows={6}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-violet-700">风险标记（每行一条）</span>
+                  <textarea
+                    value={currentSceneDraft.risk_flags_text}
+                    onChange={(e) => updateCurrentSceneDraft({ risk_flags_text: e.target.value })}
+                    rows={6}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none focus:border-violet-500"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3">
+                <div className="mb-2 text-[11px] font-semibold text-violet-700">质量权重（quality_weights）</div>
+                <div className="grid gap-2 md:grid-cols-4">
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-violet-700">语义</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={currentSceneDraft.quality_semantic}
+                      onChange={(e) => updateCurrentSceneDraft({ quality_semantic: Number(e.target.value) })}
+                      className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-violet-700">清晰度</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={currentSceneDraft.quality_clarity}
+                      onChange={(e) => updateCurrentSceneDraft({ quality_clarity: Number(e.target.value) })}
+                      className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-violet-700">循环</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={currentSceneDraft.quality_loop}
+                      onChange={(e) => updateCurrentSceneDraft({ quality_loop: Number(e.target.value) })}
+                      className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-violet-700">效率</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={currentSceneDraft.quality_efficiency}
+                      onChange={(e) => updateCurrentSceneDraft({ quality_efficiency: Number(e.target.value) })}
+                      className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3">
+                <div className="mb-2 text-[11px] font-semibold text-violet-700">技术规避（technical_reject）</div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-violet-700">模糊容忍度</span>
+                    <select
+                      value={currentSceneDraft.max_blur_tolerance}
+                      onChange={(e) =>
+                        updateCurrentSceneDraft({
+                          max_blur_tolerance: normalizeBlurTolerance(e.target.value, "low"),
+                        })
+                      }
+                      className="w-full rounded-lg border border-violet-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-violet-500"
+                    >
+                      {AI1_SCENE_BLUR_TOLERANCE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-violet-100 bg-violet-50 px-2 py-2 text-[11px] text-violet-700">
+                    <input
+                      type="checkbox"
+                      checked={!!currentSceneDraft.enabled}
+                      onChange={(e) => updateCurrentSceneDraft({ enabled: e.target.checked })}
+                      className="h-3.5 w-3.5"
+                    />
+                    场景已上线（关闭=测试中）
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-violet-100 bg-violet-50 px-2 py-2 text-[11px] text-violet-700">
+                    <input
+                      type="checkbox"
+                      checked={!!currentSceneDraft.avoid_watermarks}
+                      onChange={(e) => updateCurrentSceneDraft({ avoid_watermarks: e.target.checked })}
+                      className="h-3.5 w-3.5"
+                    />
+                    避开水印区域
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-violet-100 bg-violet-50 px-2 py-2 text-[11px] text-violet-700">
+                    <input
+                      type="checkbox"
+                      checked={!!currentSceneDraft.avoid_extreme_dark}
+                      onChange={(e) => updateCurrentSceneDraft({ avoid_extreme_dark: e.target.checked })}
+                      className="h-3.5 w-3.5"
+                    />
+                    避开极暗画面
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-end gap-2">
+                {!AI1_BUILTIN_SCENE_LABELS[ai1SceneStrategyScene] ? (
+                  <button
+                    type="button"
+                    onClick={removeCurrentCustomScene}
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                  >
+                    删除自定义场景
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={resetCurrentSceneDraft}
+                  className="rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-100"
+                >
+                  重置当前场景
+                </button>
+              </div>
+
+              {ai1SceneStrategyError ? (
+                <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+                  {ai1SceneStrategyError}
+                </div>
+              ) : null}
+              {ai1SceneStrategySuccess ? (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">
+                  {ai1SceneStrategySuccess}
+                </div>
+              ) : null}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                当前作用域为 {templateFormat.toUpperCase()}。PNG 场景策略组仅在 PNG / ALL 作用域可编辑。
+              </div>
+            )}
 
             <div className="grid gap-4 md:grid-cols-3">
               <label className="space-y-1 text-xs text-indigo-700">

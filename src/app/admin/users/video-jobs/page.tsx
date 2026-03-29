@@ -196,6 +196,90 @@ type AdminVideoJobAI1Debug = {
   trace?: Record<string, unknown>;
 };
 
+type AdminVideoImageSplitBackfillTableReport = {
+  scanned?: number;
+  would_write?: number;
+  written?: number;
+  skipped_by_format?: number;
+  fallback_used?: number;
+  failed?: number;
+  last_id?: number;
+};
+
+type AdminVideoImageSplitBackfillReport = {
+  apply?: boolean;
+  batch_size?: number;
+  format_filter?: string;
+  fallback_format?: string;
+  stopped?: boolean;
+  started_at?: string;
+  finished_at?: string;
+  jobs?: AdminVideoImageSplitBackfillTableReport;
+  outputs?: AdminVideoImageSplitBackfillTableReport;
+  packages?: AdminVideoImageSplitBackfillTableReport;
+  events?: AdminVideoImageSplitBackfillTableReport;
+  feedbacks?: AdminVideoImageSplitBackfillTableReport;
+};
+
+type AdminVideoImageSplitBackfillOptions = {
+  apply?: boolean;
+  batch_size?: number;
+  format?: string;
+  fallback_format?: string;
+  tables?: string;
+  start_job_id?: number;
+  start_output_id?: number;
+  start_package_id?: number;
+  start_event_id?: number;
+  start_feedback_id?: number;
+  limit_jobs?: number;
+  limit_outputs?: number;
+  limit_packages?: number;
+  limit_events?: number;
+  limit_feedbacks?: number;
+};
+
+type AdminVideoImageSplitBackfillStatus = {
+  running?: boolean;
+  stop_requested?: boolean;
+  run_id?: string;
+  requested_by?: number;
+  started_at?: string;
+  finished_at?: string;
+  heartbeat_at?: string;
+  last_error?: string;
+  options?: AdminVideoImageSplitBackfillOptions;
+  lease?: {
+    owner_instance?: string;
+    is_local_owner?: boolean;
+    timeout_seconds?: number;
+    expires_at?: string;
+    remaining_seconds?: number;
+    can_takeover?: boolean;
+  };
+  report?: AdminVideoImageSplitBackfillReport;
+  history?: AdminVideoImageSplitBackfillHistoryItem[];
+};
+
+type AdminVideoImageSplitBackfillHistoryItem = {
+  run_id?: string;
+  status?: string;
+  requested_by?: number;
+  started_at?: string;
+  finished_at?: string;
+  stopped?: boolean;
+  last_error?: string;
+  options?: AdminVideoImageSplitBackfillOptions;
+  report?: AdminVideoImageSplitBackfillReport;
+};
+
+type DetailTimelineFocusTarget =
+  | ""
+  | "ai1_input"
+  | "ai1_output_trace"
+  | "worker_runtime"
+  | "ai3_runtime";
+
 type AdminVideoJobDetailResponse = {
   job: AdminVideoJobItem;
   events?: AdminVideoJobEvent[];
@@ -1558,6 +1642,85 @@ function toRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function resolveMetricRecordByKeys(metrics: Record<string, unknown> | null, keys: string[]) {
+  if (!metrics) return null;
+  for (const key of keys) {
+    const record = toRecord(metrics[key]);
+    if (record) return record;
+  }
+  return null;
+}
+
+function aiFlowTimelineStatusMeta(status: "done" | "warn" | "pending") {
+  if (status === "done") {
+    return { label: "正常", className: "bg-emerald-100 text-emerald-700" };
+  }
+  if (status === "warn") {
+    return { label: "关注", className: "bg-amber-100 text-amber-700" };
+  }
+  return { label: "待定", className: "bg-slate-100 text-slate-600" };
+}
+
+function pipelineAlignmentStatusMeta(status: string) {
+  const normalized = (status || "").trim().toLowerCase();
+  if (normalized === "pass") {
+    return { label: "通过", className: "bg-emerald-100 text-emerald-700" };
+  }
+  if (normalized === "fail") {
+    return { label: "失败", className: "bg-rose-100 text-rose-700" };
+  }
+  return { label: "风险", className: "bg-amber-100 text-amber-700" };
+}
+
+function toStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item ?? "").trim())
+      .filter((item, index, arr) => !!item && arr.indexOf(item) === index);
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return [];
+    return text
+      .split(/[,\n，;；]+/g)
+      .map((item) => item.trim())
+      .filter((item, index, arr) => !!item && arr.indexOf(item) === index);
+  }
+  return [];
+}
+
+type AI1VisualSample = {
+  index: number;
+  timestampSec: number;
+  bytes: number;
+  imageDataURL?: string;
+  imageURL?: string;
+};
+
+function parseAI1VisualSamples(value: unknown): AI1VisualSample[] {
+  if (!Array.isArray(value)) return [];
+  const out: AI1VisualSample[] = [];
+  for (const raw of value) {
+    const row = toRecord(raw);
+    if (!row) continue;
+    const index = Math.max(0, Math.round(parseNumberValue(row.index) || 0));
+    const timestampSec = Number(parseNumberValue(row.timestamp_sec) || 0);
+    const bytes = Math.max(0, Math.round(parseNumberValue(row.bytes) || 0));
+    const imageDataURL = String(row.image_data_url || "").trim();
+    const imageURL = String(row.image_url || "").trim();
+    if (!imageDataURL && !imageURL) continue;
+    out.push({
+      index,
+      timestampSec: Number.isFinite(timestampSec) ? timestampSec : 0,
+      bytes,
+      imageDataURL: imageDataURL || undefined,
+      imageURL: imageURL || undefined,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 function formatPrettyJSON(value: unknown) {
   try {
     return JSON.stringify(value ?? {}, null, 2);
@@ -2008,6 +2171,10 @@ export default function AdminUserVideoJobsPage() {
   const sampleDiffRequestSeqRef = useRef(0);
   const detailRequestSeqRef = useRef(0);
   const detailTargetJobRef = useRef<number>(0);
+  const ai1InputDetailsRef = useRef<HTMLDetailsElement | null>(null);
+  const ai1OutputTraceDetailsRef = useRef<HTMLDetailsElement | null>(null);
+  const workerRuntimeDetailsRef = useRef<HTMLDetailsElement | null>(null);
+  const ai3RuntimeDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const exportNoticeLevelRef = useRef<"success" | "error">("success");
   const exportNoticeCodeRef = useRef<string>("");
   const exportNoticeRetryActionRef = useRef<ToastRetryAction | null>(null);
@@ -2039,6 +2206,10 @@ export default function AdminUserVideoJobsPage() {
   const [detailReviewStatusFilter, setDetailReviewStatusFilter] = useState<(typeof REVIEW_STATUS_FILTER_OPTIONS)[number]>("all");
   const [detailAI1FieldAuditSourceFilter, setDetailAI1FieldAuditSourceFilter] =
     useState<(typeof AI1_FIELD_AUDIT_SOURCE_OPTIONS)[number]>("all");
+  const [detailAI2CandidateDecisionFilter, setDetailAI2CandidateDecisionFilter] = useState<
+    "all" | "kept" | "rejected" | "dropped_by_budget" | "selected" | "unlabeled"
+  >("all");
+  const [detailTimelineFocus, setDetailTimelineFocus] = useState<DetailTimelineFocusTarget>("");
   const [manualDecisionOutputIDInput, setManualDecisionOutputIDInput] = useState("");
   const [manualDecisionProposalIDInput, setManualDecisionProposalIDInput] = useState("");
   const [manualDecisionStatus, setManualDecisionStatus] = useState<(typeof REVIEW_STATUS_FILTER_OPTIONS)[number]>("deliver");
@@ -2057,6 +2228,15 @@ export default function AdminUserVideoJobsPage() {
   const [batchRerenderSubmitting, setBatchRerenderSubmitting] = useState(false);
   const [batchRerenderResult, setBatchRerenderResult] = useState<AdminVideoJobGIFBatchRerenderResponse | null>(null);
   const [exportingAuditChainCSV, setExportingAuditChainCSV] = useState(false);
+  const [exportingAI2CandidateScoresCSV, setExportingAI2CandidateScoresCSV] = useState(false);
+  const [splitBackfillStatus, setSplitBackfillStatus] = useState<AdminVideoImageSplitBackfillStatus | null>(null);
+  const [splitBackfillLoading, setSplitBackfillLoading] = useState(false);
+  const [splitBackfillStarting, setSplitBackfillStarting] = useState(false);
+  const [splitBackfillStopping, setSplitBackfillStopping] = useState(false);
+  const [splitBackfillApply, setSplitBackfillApply] = useState(false);
+  const [splitBackfillBatchSize, setSplitBackfillBatchSize] = useState("500");
+  const [splitBackfillFormat, setSplitBackfillFormat] = useState("all");
+  const [splitBackfillTables, setSplitBackfillTables] = useState("jobs,outputs,packages,events,feedbacks");
 
   const effectiveFormatFilter = lockedFormatFilter || formatFilter;
 
@@ -2294,6 +2474,107 @@ export default function AdminUserVideoJobsPage() {
       setExportNotice(`加载概览失败：${message}`);
     }
   }, [overviewWindow, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction]);
+
+  const loadSplitBackfillStatus = useCallback(
+    async (silent = false) => {
+      if (!silent) {
+        setSplitBackfillLoading(true);
+      }
+      try {
+        const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/split-backfill`);
+        if (!res.ok) throw new Error(await parseApiError(res, "加载分表回填状态失败"));
+        const data = (await res.json()) as AdminVideoImageSplitBackfillStatus;
+        setSplitBackfillStatus(data);
+      } catch (err: unknown) {
+        if (!silent) {
+          const message = err instanceof Error ? err.message : "加载分表回填状态失败";
+          setExportNoticeLevel("error");
+          setExportNoticeCode(resolveErrorCodeLabel(message));
+          setExportNotice(`加载分表回填状态失败：${message}`);
+        }
+      } finally {
+        if (!silent) {
+          setSplitBackfillLoading(false);
+        }
+      }
+    },
+    [setExportNotice, setExportNoticeCode, setExportNoticeLevel]
+  );
+
+  const startSplitBackfill = useCallback(async () => {
+    setSplitBackfillStarting(true);
+    try {
+      const batchSizeNum = Math.max(1, Math.min(5000, Number(splitBackfillBatchSize || 0) || 500));
+      const body = {
+        apply: splitBackfillApply,
+        batch_size: batchSizeNum,
+        format: splitBackfillFormat === "all" ? "" : splitBackfillFormat,
+        tables: splitBackfillTables.trim(),
+      };
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/split-backfill/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await res.json().catch(() => null)) as
+        | AdminVideoImageSplitBackfillStatus
+        | { error?: string; status?: AdminVideoImageSplitBackfillStatus }
+        | null;
+      if (!res.ok) {
+        if (payload && typeof payload === "object" && "status" in payload && payload.status) {
+          setSplitBackfillStatus(payload.status);
+        }
+        const message =
+          (payload && typeof payload === "object" && "error" in payload ? String(payload.error || "") : "") ||
+          "启动失败";
+        throw new Error(message);
+      }
+      if (payload && typeof payload === "object" && "running" in payload) {
+        setSplitBackfillStatus(payload as AdminVideoImageSplitBackfillStatus);
+      } else {
+        await loadSplitBackfillStatus(true);
+      }
+      setExportNoticeLevel("success");
+      setExportNotice("分表回填任务已启动");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "启动失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNotice(`启动分表回填失败：${message}`);
+    } finally {
+      setSplitBackfillStarting(false);
+    }
+  }, [
+    loadSplitBackfillStatus,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    splitBackfillApply,
+    splitBackfillBatchSize,
+    splitBackfillFormat,
+    splitBackfillTables,
+  ]);
+
+  const stopSplitBackfill = useCallback(async () => {
+    setSplitBackfillStopping(true);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/split-backfill/stop`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, "停止失败"));
+      const data = (await res.json()) as AdminVideoImageSplitBackfillStatus;
+      setSplitBackfillStatus(data);
+      setExportNoticeLevel("success");
+      setExportNotice("已发送停止信号");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "停止失败";
+      setExportNoticeLevel("error");
+      setExportNoticeCode(resolveErrorCodeLabel(message));
+      setExportNotice(`停止分表回填失败：${message}`);
+    } finally {
+      setSplitBackfillStopping(false);
+    }
+  }, [setExportNotice, setExportNoticeCode, setExportNoticeLevel]);
 
   const loadSampleBaselineDiff = useCallback(async () => {
     const requestSeq = sampleDiffRequestSeqRef.current + 1;
@@ -2755,6 +3036,14 @@ export default function AdminUserVideoJobsPage() {
   }, [loadSampleBaselineDiff]);
 
   useEffect(() => {
+    void loadSplitBackfillStatus();
+    const timer = window.setInterval(() => {
+      void loadSplitBackfillStatus(true);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [loadSplitBackfillStatus]);
+
+  useEffect(() => {
     toastNoticesRef.current = toastNotices;
   }, [toastNotices]);
 
@@ -2777,6 +3066,7 @@ export default function AdminUserVideoJobsPage() {
     setAuditChainLoading(true);
     setDetailError(null);
     setAuditChainError(null);
+    setDetailTimelineFocus("");
     setDetail(null);
     setAuditChain(null);
     try {
@@ -2816,7 +3106,13 @@ export default function AdminUserVideoJobsPage() {
         setAuditChainLoading(false);
       }
     }
-  }, [detailReviewStatusFilter, setExportNotice, setExportNoticeCode, setExportNoticeLevel, setExportNoticeRetryAction]);
+  }, [
+    detailReviewStatusFilter,
+    setExportNotice,
+    setExportNoticeCode,
+    setExportNoticeLevel,
+    setExportNoticeRetryAction,
+  ]);
 
   useEffect(() => {
     const activeJobID = detailTargetJobRef.current;
@@ -2826,7 +3122,23 @@ export default function AdminUserVideoJobsPage() {
 
   useEffect(() => {
     setDetailAI1FieldAuditSourceFilter("all");
+    setDetailAI2CandidateDecisionFilter("all");
+    setDetailTimelineFocus("");
   }, [detailJobID]);
+
+  useEffect(() => {
+    if (!detailTimelineFocus) return;
+    const focusRefMap: Record<Exclude<DetailTimelineFocusTarget, "">, HTMLDetailsElement | null> = {
+      ai1_input: ai1InputDetailsRef.current,
+      ai1_output_trace: ai1OutputTraceDetailsRef.current,
+      worker_runtime: workerRuntimeDetailsRef.current,
+      ai3_runtime: ai3RuntimeDetailsRef.current,
+    };
+    const node = focusRefMap[detailTimelineFocus];
+    if (!node) return;
+    node.open = true;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [detailTimelineFocus]);
 
   useEffect(() => {
     setRerenderProposalIDInput("");
@@ -3770,6 +4082,18 @@ export default function AdminUserVideoJobsPage() {
     () => parseBooleanValue(detail?.job?.metrics?.source_video_deleted),
     [detail?.job?.metrics]
   );
+  const splitBackfillReport = splitBackfillStatus?.report || null;
+  const splitBackfillLease = splitBackfillStatus?.lease || null;
+  const splitBackfillTableRows = useMemo(
+    () => [
+      { key: "jobs", label: "Jobs", stats: splitBackfillReport?.jobs },
+      { key: "outputs", label: "Outputs", stats: splitBackfillReport?.outputs },
+      { key: "packages", label: "Packages", stats: splitBackfillReport?.packages },
+      { key: "events", label: "Events", stats: splitBackfillReport?.events },
+      { key: "feedbacks", label: "Feedbacks", stats: splitBackfillReport?.feedbacks },
+    ],
+    [splitBackfillReport]
+  );
   const detailAIUsageRows = useMemo(() => {
     const source = Array.isArray(detail?.ai_usages) ? detail.ai_usages : [];
     return [...source].sort((a, b) => {
@@ -3903,6 +4227,980 @@ export default function AdminUserVideoJobsPage() {
     () => toRecord(detailAI1Output?.ai2_instruction),
     [detailAI1Output]
   );
+  const detailPipelineAlignmentReport = useMemo(() => {
+    const fromOutput = toRecord(detailAI1Output?.pipeline_alignment_report_v1);
+    if (fromOutput) return fromOutput;
+    const trace = toRecord(detailAI1Debug?.trace);
+    return toRecord(trace?.pipeline_alignment_report_v1);
+  }, [detailAI1Debug?.trace, detailAI1Output]);
+  const detailPipelineAlignmentChecks = useMemo(() => {
+    if (!detailPipelineAlignmentReport || !Array.isArray(detailPipelineAlignmentReport.consistency_checks)) {
+      return [] as Array<{
+        key: string;
+        label: string;
+        status: string;
+        detail: string;
+        value: unknown;
+      }>;
+    }
+    const rows: Array<{
+      key: string;
+      label: string;
+      status: string;
+      detail: string;
+      value: unknown;
+    }> = [];
+    detailPipelineAlignmentReport.consistency_checks.forEach((raw, idx) => {
+      const row = toRecord(raw);
+      if (!row) return;
+      rows.push({
+        key: String(row.key || `check_${idx}`).trim() || `check_${idx}`,
+        label: String(row.label || row.key || `检查项 ${idx + 1}`).trim() || `检查项 ${idx + 1}`,
+        status: String(row.status || "").trim().toLowerCase() || "warn",
+        detail: String(row.detail || "").trim(),
+        value: row.value ?? null,
+      });
+    });
+    return rows;
+  }, [detailPipelineAlignmentReport]);
+  const detailPipelineAlignmentSummary = useMemo(() => {
+    const summary = toRecord(detailPipelineAlignmentReport?.summary);
+    const scenario = toRecord(detailPipelineAlignmentReport?.scenario);
+    const passCount = Math.max(0, Math.round(parseNumberValue(summary?.pass_count) || 0));
+    const warnCount = Math.max(0, Math.round(parseNumberValue(summary?.warn_count) || 0));
+    const failCount = Math.max(0, Math.round(parseNumberValue(summary?.fail_count) || 0));
+    const totalChecks =
+      Math.max(0, Math.round(parseNumberValue(summary?.total_checks) || 0)) || detailPipelineAlignmentChecks.length;
+    const status =
+      String(summary?.status || "")
+        .trim()
+        .toLowerCase() || (failCount > 0 ? "fail" : warnCount > 0 ? "warn" : "pass");
+    const sceneLabel = String(scenario?.scene_label || scenario?.scene || "-").trim() || "-";
+    return {
+      status,
+      passCount,
+      warnCount,
+      failCount,
+      totalChecks,
+      sceneLabel,
+    };
+  }, [detailPipelineAlignmentChecks.length, detailPipelineAlignmentReport]);
+  const detailPipelineSceneBaselineDiff = useMemo(() => {
+    const diff = toRecord(detailPipelineAlignmentReport?.scene_baseline_diff_v1);
+    if (!diff) {
+      return null;
+    }
+    return {
+      baselineScene: String(diff.baseline_scene || "-"),
+      currentScene: String(diff.current_scene || "-"),
+      sceneChanged: parseBooleanValue(diff.scene_changed),
+      summary: String(diff.recommendation_summary || "-"),
+      weightDiffKeys: toStringList(diff.weight_diff_keys),
+      mustAdded: toStringList(diff.must_capture_added),
+      avoidAdded: toStringList(diff.avoid_added),
+      technicalChanged: toStringList(diff.technical_reject_changed_keys),
+      raw: diff,
+    };
+  }, [detailPipelineAlignmentReport]);
+  const detailAI1Input = useMemo(
+    () => toRecord(detailAI1Debug?.input),
+    [detailAI1Debug?.input]
+  );
+  const detailAI1InputUser = useMemo(
+    () => toRecord(detailAI1Input?.user),
+    [detailAI1Input]
+  );
+  const detailAI1InputVideo = useMemo(
+    () => toRecord(detailAI1Input?.video),
+    [detailAI1Input]
+  );
+  const detailAI1VideoProbe = useMemo(
+    () => toRecord(detailAI1InputVideo?.probe),
+    [detailAI1InputVideo]
+  );
+  const detailAI1VideoMeta = useMemo(
+    () => toRecord(detailAI1InputVideo?.metrics_meta),
+    [detailAI1InputVideo]
+  );
+  const detailAI1AdvancedOptions = useMemo(() => {
+    return (
+      toRecord(detailAI1Input?.advanced_options) ||
+      toRecord(detailAI1Output?.advanced_options) ||
+      toRecord(detailAI1UserReply?.advanced_options)
+    );
+  }, [detailAI1Input, detailAI1Output, detailAI1UserReply]);
+  const detailAI1AppliedStrategyProfile = useMemo(() => {
+    return (
+      toRecord(detailAI1Input?.applied_strategy_profile) ||
+      toRecord(detailAI1Output?.applied_strategy_profile) ||
+      toRecord(detailAI1UserReply?.applied_strategy_profile) ||
+      toRecord(detailAI1AI2Instruction?.strategy_profile)
+    );
+  }, [detailAI1AI2Instruction, detailAI1Input, detailAI1Output, detailAI1UserReply]);
+  const detailAI1AppliedStrategyTrace = useMemo(() => {
+    return (
+      toRecord(detailAI1UserReply?.applied_strategy_trace) ||
+      toRecord(detailAI1Output?.applied_strategy_trace)
+    );
+  }, [detailAI1Output, detailAI1UserReply]);
+  const detailAI1VisualSamples = useMemo(() => {
+    return parseAI1VisualSamples(detailAI1Input?.visual_samples);
+  }, [detailAI1Input]);
+  const detailAI1DiagnosisInputRows = useMemo(() => {
+    const probe = detailAI1VideoProbe || {};
+    const metricsMeta = detailAI1VideoMeta || {};
+    const scene = String(detailAI1AdvancedOptions?.scene || "-");
+    const visualFocus = toStringList(detailAI1AdvancedOptions?.visual_focus).join(" / ") || "-";
+    const enableMatting = parseBooleanValue(detailAI1AdvancedOptions?.enable_matting) ? "是" : "否";
+    const strategyLabel = String(detailAI1AppliedStrategyProfile?.scene_label || detailAI1AppliedStrategyProfile?.scene || "-");
+    const strategyVersion = String(detailAI1AppliedStrategyProfile?.version || "-");
+    const traceSource = String(detailAI1AppliedStrategyTrace?.source || "-");
+    const traceMatchedScene = String(
+      detailAI1AppliedStrategyTrace?.matched_scene || detailAI1AppliedStrategyTrace?.resolved_scene || "-"
+    );
+    const videoMetaTextParts: string[] = [];
+    const durationSec = parseNumberValue(metricsMeta.duration_sec ?? probe.duration_sec);
+    const width = parseNumberValue(metricsMeta.width ?? probe.width);
+    const height = parseNumberValue(metricsMeta.height ?? probe.height);
+    const fps = parseNumberValue(metricsMeta.fps ?? probe.fps);
+    if (typeof durationSec === "number" && Number.isFinite(durationSec) && durationSec > 0) {
+      videoMetaTextParts.push(`时长 ${durationSec.toFixed(2)}s`);
+    }
+    if (typeof width === "number" && Number.isFinite(width) && width > 0 && typeof height === "number" && Number.isFinite(height) && height > 0) {
+      videoMetaTextParts.push(`分辨率 ${Math.round(width)}x${Math.round(height)}`);
+    }
+    if (typeof fps === "number" && Number.isFinite(fps) && fps > 0) {
+      videoMetaTextParts.push(`帧率 ${fps.toFixed(2)}`);
+    }
+    return [
+      {
+        key: "user_prompt",
+        label: "用户提示词",
+        value: String(detailAI1InputUser?.prompt || detailAI1Debug?.source_prompt || "-"),
+        path: "input.user.prompt",
+        note: "用户在官网输入的自然语言需求。",
+      },
+      {
+        key: "model_pref",
+        label: "模型偏好",
+        value: String(detailAI1InputUser?.ai_model_preference || "-"),
+        path: "input.user.ai_model_preference",
+        note: "用户选择的模型偏好（可为空）。",
+      },
+      {
+        key: "source_video",
+        label: "视频源 Key",
+        value: String(detailAI1InputVideo?.source_video_key || detail?.job?.source_video_key || "-"),
+        path: "input.video.source_video_key",
+        note: "后端用于定位源视频的存储键。",
+      },
+      {
+        key: "video_meta",
+        label: "视频基础感知",
+        value: videoMetaTextParts.join(" · ") || "-",
+        path: "input.video.metrics_meta + input.video.probe",
+        note: "AI1 建议构建时使用的视频物理参数。",
+      },
+      {
+        key: "scene",
+        label: "高级选项-场景",
+        value: scene || "-",
+        path: "input.advanced_options.scene",
+        note: "用户选择的业务场景（例如小红书/壁纸）。",
+      },
+      {
+        key: "focus",
+        label: "高级选项-视觉聚焦",
+        value: visualFocus,
+        path: "input.advanced_options.visual_focus",
+        note: "用户指定 AI1 优先关注的画面要素。",
+      },
+      {
+        key: "matting",
+        label: "高级选项-主体抠图",
+        value: enableMatting,
+        path: "input.advanced_options.enable_matting",
+        note: "后续 worker 是否执行抠图后处理。",
+      },
+      {
+        key: "strategy",
+        label: "命中策略组",
+        value: `${strategyLabel}（版本 ${strategyVersion}）`,
+        path: "input.applied_strategy_profile",
+        note: "AI1 最终使用的策略组配置快照。",
+      },
+      {
+        key: "strategy_trace",
+        label: "策略来源追踪",
+        value: `${traceSource} / scene=${traceMatchedScene}`,
+        path: "output.user_reply.applied_strategy_trace",
+        note: "策略来源（模板 or 默认）与命中场景追踪。",
+      },
+    ];
+  }, [
+    detail,
+    detailAI1AdvancedOptions,
+    detailAI1AppliedStrategyProfile,
+    detailAI1AppliedStrategyTrace,
+    detailAI1Debug?.source_prompt,
+    detailAI1InputUser,
+    detailAI1InputVideo,
+    detailAI1VideoMeta,
+    detailAI1VideoProbe,
+  ]);
+  const detailAI1DiagnosisOutputRows = useMemo(() => {
+    const userSummary = String(
+      detailAI1UserReply?.summary ||
+        detailAI1UserReply?.intent_understanding ||
+        detailAI1UserReply?.message ||
+        "-"
+    );
+    const ai2Objective = String(detailAI1AI2Instruction?.objective || "-");
+    const operatorIdentity = String(detailAI1AI2Instruction?.operator_identity || "-");
+    const mustCapture = toStringList(detailAI1AI2Instruction?.must_capture).join(" / ") || "-";
+    const avoid = toStringList(detailAI1AI2Instruction?.avoid).join(" / ") || "-";
+    const riskFlags = toStringList(detailAI1AI2Instruction?.risk_flags).join(" / ") || "-";
+    const styleDirection = String(detailAI1AI2Instruction?.style_direction || "-");
+    const postprocess = toRecord(detailAI1AI2Instruction?.postprocess);
+    const technicalReject = toRecord(detailAI1AI2Instruction?.technical_reject);
+    const qualityWeights = toRecord(detailAI1AI2Instruction?.quality_weights);
+    const candidateCountBias = toRecord(detailAI1AI2Instruction?.candidate_count_bias);
+    const candidateCountMin = Math.max(1, Math.round(parseNumberValue(candidateCountBias?.min) || 0));
+    const candidateCountMax = Math.max(candidateCountMin, Math.round(parseNumberValue(candidateCountBias?.max) || 0));
+    const candidateCountText = candidateCountBias ? `${candidateCountMin} ~ ${candidateCountMax}` : "-";
+    const qualityWeightText = qualityWeights
+      ? [
+          `语义 ${parseNumberValue(qualityWeights.semantic)?.toFixed(2) ?? "-"}`,
+          `清晰 ${parseNumberValue(qualityWeights.clarity)?.toFixed(2) ?? "-"}`,
+          `循环 ${parseNumberValue(qualityWeights.loop)?.toFixed(2) ?? "-"}`,
+          `效率 ${parseNumberValue(qualityWeights.efficiency)?.toFixed(2) ?? "-"}`,
+        ].join(" · ")
+      : "-";
+    const postprocessText = postprocess ? formatPrettyJSON(postprocess) : "-";
+    const technicalRejectText = technicalReject ? formatPrettyJSON(technicalReject) : "-";
+    const planFound = String(detailAI1ModelResponse?.plan_found ?? "-");
+    const directiveFound = String(detailAI1ModelResponse?.directive_found ?? "-");
+    return [
+      {
+        key: "user_reply",
+        label: "给用户的自然语言理解说明",
+        value: userSummary,
+        path: "output.user_reply.summary",
+        note: "AI1 给用户可见的理解反馈。",
+      },
+      {
+        key: "ai2_objective",
+        label: "AI2 目标",
+        value: ai2Objective,
+        path: "output.ai2_instruction.objective",
+        note: "AI1 下发给 AI2 的核心目标。",
+      },
+      {
+        key: "operator_identity",
+        label: "运营身份设定",
+        value: operatorIdentity,
+        path: "output.ai2_instruction.operator_identity",
+        note: "策略组约束的角色身份，用于稳定风格调性。",
+      },
+      {
+        key: "candidate_count_bias",
+        label: "候选数量建议区间",
+        value: candidateCountText,
+        path: "output.ai2_instruction.candidate_count_bias",
+        note: "指导 AI2/worker 的候选样本范围。",
+      },
+      {
+        key: "must_capture",
+        label: "AI2 必须捕捉",
+        value: mustCapture,
+        path: "output.ai2_instruction.must_capture",
+        note: "AI2 执行时优先寻找的画面特征。",
+      },
+      {
+        key: "avoid",
+        label: "AI2 必须规避",
+        value: avoid,
+        path: "output.ai2_instruction.avoid",
+        note: "AI2 执行时要扣分或过滤的要素。",
+      },
+      {
+        key: "quality_weights",
+        label: "AI2 打分权重",
+        value: qualityWeightText,
+        path: "output.ai2_instruction.quality_weights",
+        note: "语义/清晰/循环/效率四维权重。",
+      },
+      {
+        key: "risk_flags",
+        label: "风险标记",
+        value: riskFlags,
+        path: "output.ai2_instruction.risk_flags",
+        note: "AI1 识别并传递给 AI2/worker 的风险标签。",
+      },
+      {
+        key: "style_direction",
+        label: "风格方向",
+        value: styleDirection,
+        path: "output.ai2_instruction.style_direction",
+        note: "执行阶段的整体风格导向。",
+      },
+      {
+        key: "technical_reject",
+        label: "技术拒绝规则",
+        value: technicalRejectText,
+        path: "output.ai2_instruction.technical_reject",
+        note: "模糊/暗光/水印等硬过滤规则。",
+      },
+      {
+        key: "postprocess",
+        label: "后处理指令",
+        value: postprocessText,
+        path: "output.ai2_instruction.postprocess",
+        note: "例如透明 PNG 抠图等后处理参数。",
+      },
+      {
+        key: "plan_status",
+        label: "AI1 计划状态",
+        value: `plan_found=${planFound} / directive_found=${directiveFound}`,
+        path: "model_response.plan_found + model_response.directive_found",
+        note: "用于快速判断 AI1 是否命中了结构化计划与指令。",
+      },
+    ];
+  }, [detailAI1AI2Instruction, detailAI1ModelResponse, detailAI1UserReply]);
+  const detailJobOptionsRecord = useMemo(
+    () => toRecord(detail?.job?.options),
+    [detail?.job?.options]
+  );
+  const detailJobMetricsRecord = useMemo(
+    () => toRecord(detail?.job?.metrics),
+    [detail?.job?.metrics]
+  );
+  const detailAI2RuntimeFormat = useMemo(() => {
+    const requested = String(
+      detailAI1Debug?.requested_format || detailJobOptionsRecord?.requested_format || detailAI1AI2Instruction?.target_format || ""
+    )
+      .trim()
+      .toLowerCase();
+    return requested || "png";
+  }, [detailAI1AI2Instruction?.target_format, detailAI1Debug?.requested_format, detailJobOptionsRecord?.requested_format]);
+  const detailAI2Guidance = useMemo(() => {
+    return (
+      toRecord(detailJobOptionsRecord?.ai2_guidance_v1) ||
+      resolveMetricRecordByKeys(detailJobMetricsRecord, [
+        `${detailAI2RuntimeFormat}_ai2_guidance_v1`,
+        "ai2_guidance_v1",
+      ])
+    );
+  }, [detailAI2RuntimeFormat, detailJobMetricsRecord, detailJobOptionsRecord?.ai2_guidance_v1]);
+  const detailAI2WorkerStrategy = useMemo(() => {
+    return (
+      toRecord(detailJobOptionsRecord?.ai2_worker_strategy_v1) ||
+      resolveMetricRecordByKeys(detailJobMetricsRecord, [
+        `${detailAI2RuntimeFormat}_worker_strategy_v1`,
+        "worker_strategy_v1",
+      ])
+    );
+  }, [detailAI2RuntimeFormat, detailJobMetricsRecord, detailJobOptionsRecord?.ai2_worker_strategy_v1]);
+  const detailAI2QualitySettingsRuntime = useMemo(() => {
+    return resolveMetricRecordByKeys(detailJobMetricsRecord, [
+      `${detailAI2RuntimeFormat}_quality_settings_v1`,
+      "quality_settings_v1",
+    ]);
+  }, [detailAI2RuntimeFormat, detailJobMetricsRecord]);
+  const detailAI2ExtractionRuntime = useMemo(() => {
+    return resolveMetricRecordByKeys(detailJobMetricsRecord, [
+      `${detailAI2RuntimeFormat}_extraction_v1`,
+      "extraction_v1",
+    ]);
+  }, [detailAI2RuntimeFormat, detailJobMetricsRecord]);
+  const detailAI2FrameQualityReport = useMemo(() => {
+    return resolveMetricRecordByKeys(detailJobMetricsRecord, [
+      `${detailAI2RuntimeFormat}_frame_quality_v1`,
+      "frame_quality_v1",
+      "frame_quality",
+    ]);
+  }, [detailAI2RuntimeFormat, detailJobMetricsRecord]);
+  const detailAI2WeightHardEffect = useMemo(() => {
+    const weightKeys = ["semantic", "clarity", "loop", "efficiency"] as const;
+    const weightLabels: Record<(typeof weightKeys)[number], string> = {
+      semantic: "语义",
+      clarity: "清晰",
+      loop: "循环",
+      efficiency: "效率",
+    };
+    const parseWeights = (raw: unknown) => {
+      const record = toRecord(raw);
+      if (!record) return null;
+      const out: Partial<Record<(typeof weightKeys)[number], number>> = {};
+      for (const key of weightKeys) {
+        const value = parseNumberValue(record[key]);
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          out[key] = value;
+        }
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    };
+    const formatWeight = (value: number | undefined) => {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "-";
+      return `${(value * 100).toFixed(1)}%`;
+    };
+    const formatDiff = (value: number | undefined) => {
+      if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+      return `${(value * 100).toFixed(2)}%`;
+    };
+    const requestedWeights = parseWeights(detailAI1AI2Instruction?.quality_weights);
+    const guidanceWeights = parseWeights(detailAI2Guidance?.quality_weights);
+    const reportWeights = parseWeights(detailAI2FrameQualityReport?.scoring_weights);
+    const rows = weightKeys.map((key) => {
+      const requested = requestedWeights?.[key];
+      const guidance = guidanceWeights?.[key];
+      const report = reportWeights?.[key];
+      const reqGuidanceDiff =
+        typeof requested === "number" && typeof guidance === "number" ? Math.abs(requested - guidance) : undefined;
+      const guidanceReportDiff =
+        typeof guidance === "number" && typeof report === "number" ? Math.abs(guidance - report) : undefined;
+      return {
+        key,
+        label: weightLabels[key],
+        requested,
+        guidance,
+        report,
+        requestedText: formatWeight(requested),
+        guidanceText: formatWeight(guidance),
+        reportText: formatWeight(report),
+        reqGuidanceDiff,
+        guidanceReportDiff,
+        reqGuidanceDiffText: formatDiff(reqGuidanceDiff),
+        guidanceReportDiffText: formatDiff(guidanceReportDiff),
+      };
+    });
+    const hasAnyWeights = rows.some(
+      (row) =>
+        typeof row.requested === "number" || typeof row.guidance === "number" || typeof row.report === "number"
+    );
+    const reqGuideComparable = rows.filter(
+      (row) => typeof row.requested === "number" && typeof row.guidance === "number"
+    );
+    const guideReportComparable = rows.filter(
+      (row) => typeof row.guidance === "number" && typeof row.report === "number"
+    );
+    const epsilon = 0.001;
+    const reqGuideMismatch = reqGuideComparable.filter((row) => (row.reqGuidanceDiff || 0) > epsilon).length;
+    const guideReportMismatch = guideReportComparable.filter((row) => (row.guidanceReportDiff || 0) > epsilon).length;
+    const scoringMode = String(
+      detailAI2ExtractionRuntime?.scoring_mode ||
+        detailAI2FrameQualityReport?.scoring_mode ||
+        detailAI2Guidance?.scoring_mode ||
+        "-"
+    )
+      .trim()
+      .toLowerCase();
+    const selectorVersion = String(
+      detailAI2ExtractionRuntime?.selector_version ||
+        detailAI2FrameQualityReport?.selector_version ||
+        detailAI2Guidance?.selector_version ||
+        "-"
+    ).trim();
+    const weightedModeEnabled = scoringMode === "weighted_quality_v1";
+    const ai2GuidedSelector = selectorVersion.includes("ai2_guided");
+
+    let status: "ok" | "warn" | "pending" = "pending";
+    let statusLabel = "待补数据";
+    let statusClass = "bg-slate-100 text-slate-600";
+    let summary = "当前任务尚未形成可比对的 AI2 权重数据。";
+    if (hasAnyWeights) {
+      const hardAligned =
+        reqGuideMismatch === 0 &&
+        (guideReportComparable.length === 0 || guideReportMismatch === 0) &&
+        weightedModeEnabled &&
+        ai2GuidedSelector;
+      if (hardAligned) {
+        status = "ok";
+        statusLabel = "硬生效一致";
+        statusClass = "bg-emerald-100 text-emerald-700";
+        summary = "AI1→AI2→质量报告权重一致，且运行于 weighted_quality_v1 + ai2_guided_ranker。";
+      } else {
+        status = "warn";
+        statusLabel = "需关注";
+        statusClass = "bg-amber-100 text-amber-700";
+        summary = `检测到权重或模式存在偏差：req→guidance 差异 ${reqGuideMismatch} 项，guidance→report 差异 ${guideReportMismatch} 项。`;
+      }
+    }
+
+    const frameTotal = parseNumberValue(detailAI2FrameQualityReport?.total_frames);
+    const frameKept = parseNumberValue(detailAI2FrameQualityReport?.kept_frames);
+    const frameAvgKeptScore = parseNumberValue(detailAI2FrameQualityReport?.avg_kept_score);
+    const frameFallback = parseBooleanValue(detailAI2FrameQualityReport?.fallback_applied);
+    const qualityStats = {
+      totalFramesText: typeof frameTotal === "number" ? formatInteger(frameTotal) : "-",
+      keptFramesText: typeof frameKept === "number" ? formatInteger(frameKept) : "-",
+      avgKeptScoreText: typeof frameAvgKeptScore === "number" ? formatScore(frameAvgKeptScore) : "-",
+      fallbackText: frameFallback ? "是" : "否",
+      rejectedText: `模糊 ${formatInteger(parseNumberValue(detailAI2FrameQualityReport?.rejected_blur))} · 曝光 ${formatInteger(parseNumberValue(detailAI2FrameQualityReport?.rejected_exposure))} · 去重 ${formatInteger(parseNumberValue(detailAI2FrameQualityReport?.rejected_near_duplicate))}`,
+    };
+
+    return {
+      hasAnyWeights,
+      status,
+      statusLabel,
+      statusClass,
+      summary,
+      scoringMode: scoringMode || "-",
+      selectorVersion: selectorVersion || "-",
+      formula: "final = semantic_score×w_semantic + clarity_score×w_clarity + loop_score×w_loop + efficiency_score×w_efficiency",
+      rows,
+      qualityStats,
+    };
+  }, [detailAI1AI2Instruction?.quality_weights, detailAI2ExtractionRuntime, detailAI2FrameQualityReport, detailAI2Guidance]);
+  const detailAI2CandidateScoreRows = useMemo(() => {
+    const rawRows = Array.isArray(detailAI2FrameQualityReport?.candidate_scores)
+      ? detailAI2FrameQualityReport?.candidate_scores
+      : [];
+    const toLabel = (decision: string) => {
+      switch (decision.trim().toLowerCase()) {
+        case "kept":
+          return { text: "保留", className: "bg-emerald-100 text-emerald-700" };
+        case "dropped_by_budget":
+          return { text: "预算淘汰", className: "bg-amber-100 text-amber-700" };
+        case "rejected":
+          return { text: "规则过滤", className: "bg-rose-100 text-rose-700" };
+        case "selected":
+          return { text: "候选中", className: "bg-cyan-100 text-cyan-700" };
+        default:
+          return { text: "未标注", className: "bg-slate-100 text-slate-600" };
+      }
+    };
+    const toReasonCN = (reason: string) => {
+      switch (reason.trim().toLowerCase()) {
+        case "resolution_gate":
+          return "分辨率门槛";
+        case "brightness_gate":
+          return "亮度门槛";
+        case "exposure_gate":
+          return "曝光门槛";
+        case "still_blur_gate":
+          return "清晰度硬门槛";
+        case "blur_threshold_gate":
+          return "动态模糊门槛";
+        case "near_duplicate":
+          return "近重复去重";
+        default:
+          return reason || "-";
+      }
+    };
+    return rawRows
+      .map((item) => {
+        const row = toRecord(item);
+        if (!row) return null;
+        const rank = Math.max(0, Math.round(parseNumberValue(row.rank) || 0));
+        const index = Math.max(0, Math.round(parseNumberValue(row.index) || 0));
+        const sceneID = Math.max(0, Math.round(parseNumberValue(row.scene_id) || 0));
+        const decisionRaw = String(row.decision || "").trim().toLowerCase();
+        const decisionMeta = toLabel(decisionRaw);
+        const frameName = String(row.frame_name || row.frame_path || `frame_${index}`).trim() || `frame_${index}`;
+        const rejectReason = toReasonCN(String(row.reject_reason || "").trim());
+        const finalScore = parseNumberValue(row.final_score);
+        const semanticScore = parseNumberValue(row.semantic_score);
+        const clarityScore = parseNumberValue(row.clarity_score);
+        const loopScore = parseNumberValue(row.loop_score);
+        const efficiencyScore = parseNumberValue(row.efficiency_score);
+        const semanticWeight = parseNumberValue(row.semantic_weight);
+        const clarityWeight = parseNumberValue(row.clarity_weight);
+        const loopWeight = parseNumberValue(row.loop_weight);
+        const efficiencyWeight = parseNumberValue(row.efficiency_weight);
+        const semanticContribution = parseNumberValue(row.semantic_contribution);
+        const clarityContribution = parseNumberValue(row.clarity_contribution);
+        const loopContribution = parseNumberValue(row.loop_contribution);
+        const efficiencyContribution = parseNumberValue(row.efficiency_contribution);
+        const formatTerm = (score?: number, weight?: number, contribution?: number) => {
+          if (
+            typeof score !== "number" ||
+            !Number.isFinite(score) ||
+            typeof weight !== "number" ||
+            !Number.isFinite(weight)
+          ) {
+            return "-";
+          }
+          if (typeof contribution === "number" && Number.isFinite(contribution)) {
+            return `${score.toFixed(3)} × ${(weight * 100).toFixed(1)}% = ${contribution.toFixed(3)}`;
+          }
+          return `${score.toFixed(3)} × ${(weight * 100).toFixed(1)}%`;
+        };
+        return {
+          rank,
+          index,
+          sceneID,
+          frameName,
+          decisionValue: decisionRaw || "unlabeled",
+          decisionText: decisionMeta.text,
+          decisionClassName: decisionMeta.className,
+          rejectReason,
+          finalScoreText: typeof finalScore === "number" && Number.isFinite(finalScore) ? finalScore.toFixed(3) : "-",
+          semanticTerm: formatTerm(semanticScore, semanticWeight, semanticContribution),
+          clarityTerm: formatTerm(clarityScore, clarityWeight, clarityContribution),
+          loopTerm: formatTerm(loopScore, loopWeight, loopContribution),
+          efficiencyTerm: formatTerm(efficiencyScore, efficiencyWeight, efficiencyContribution),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => !!item)
+      .sort((a, b) => {
+        if (a.rank > 0 && b.rank > 0 && a.rank !== b.rank) return a.rank - b.rank;
+        return a.index - b.index;
+      });
+  }, [detailAI2FrameQualityReport?.candidate_scores]);
+  const detailAI2CandidateDecisionStats = useMemo(() => {
+    const stats = {
+      total: detailAI2CandidateScoreRows.length,
+      kept: 0,
+      rejected: 0,
+      dropped_by_budget: 0,
+      selected: 0,
+      unlabeled: 0,
+    };
+    for (const row of detailAI2CandidateScoreRows) {
+      const key = row.decisionValue;
+      if (key === "kept") stats.kept += 1;
+      else if (key === "rejected") stats.rejected += 1;
+      else if (key === "dropped_by_budget") stats.dropped_by_budget += 1;
+      else if (key === "selected") stats.selected += 1;
+      else stats.unlabeled += 1;
+    }
+    return stats;
+  }, [detailAI2CandidateScoreRows]);
+  const detailAI2CandidateScoreFilteredRows = useMemo(() => {
+    if (detailAI2CandidateDecisionFilter === "all") return detailAI2CandidateScoreRows;
+    return detailAI2CandidateScoreRows.filter((row) => row.decisionValue === detailAI2CandidateDecisionFilter);
+  }, [detailAI2CandidateDecisionFilter, detailAI2CandidateScoreRows]);
+  const exportAI2CandidateScoresCSV = useCallback(() => {
+    if (!detail?.job?.id) {
+      setExportNotice("导出失败：当前任务尚未加载");
+      return;
+    }
+    if (!detailAI2CandidateScoreFilteredRows.length) {
+      setExportNotice("导出失败：当前筛选下没有可导出的候选评分明细");
+      return;
+    }
+    setExportingAI2CandidateScoresCSV(true);
+    try {
+      const headers = [
+        "rank",
+        "index",
+        "scene_id",
+        "frame_name",
+        "decision",
+        "reject_reason",
+        "final_score",
+        "semantic_term",
+        "clarity_term",
+        "loop_term",
+        "efficiency_term",
+      ];
+      const rows = detailAI2CandidateScoreFilteredRows.map((row) => ({
+        rank: row.rank || "",
+        index: row.index,
+        scene_id: row.sceneID || "",
+        frame_name: row.frameName,
+        decision: row.decisionValue,
+        reject_reason: row.rejectReason === "-" ? "" : row.rejectReason,
+        final_score: row.finalScoreText === "-" ? "" : row.finalScoreText,
+        semantic_term: row.semanticTerm,
+        clarity_term: row.clarityTerm,
+        loop_term: row.loopTerm,
+        efficiency_term: row.efficiencyTerm,
+      }));
+      const csv = buildCSVText(headers, rows);
+      const decisionPart = detailAI2CandidateDecisionFilter === "all" ? "all" : detailAI2CandidateDecisionFilter;
+      const formatPart = String(detailAI2RuntimeFormat || "png")
+        .trim()
+        .toLowerCase() || "png";
+      const filename = `video_job_${detail.job.id}_${formatPart}_ai2_candidate_scores_${decisionPart}.csv`;
+      downloadTextFile(filename, csv, "text/csv;charset=utf-8;");
+      setExportNotice(`导出成功：${filename}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出失败";
+      setExportNotice(`导出失败：${message}`);
+    } finally {
+      setExportingAI2CandidateScoresCSV(false);
+    }
+  }, [
+    detail?.job?.id,
+    detailAI2CandidateDecisionFilter,
+    detailAI2CandidateScoreFilteredRows,
+    detailAI2RuntimeFormat,
+    setExportNotice,
+  ]);
+  const detailAI3RuntimeSummary = useMemo(() => {
+    return resolveMetricRecordByKeys(detailJobMetricsRecord, [
+      `${detailAI2RuntimeFormat}_ai3_review_v1`,
+      "ai3_review_v1",
+    ]);
+  }, [detailAI2RuntimeFormat, detailJobMetricsRecord]);
+  const detailAI2WorkerRows = useMemo(() => {
+    const guidance = detailAI2Guidance || {};
+    const strategy = detailAI2WorkerStrategy || {};
+    const qualityRuntime = detailAI2QualitySettingsRuntime || {};
+    const extractionRuntime = detailAI2ExtractionRuntime || {};
+    const appliedTuning = toRecord(strategy.applied_tuning);
+    const qualityWeights = toRecord(guidance.quality_weights);
+    const technicalReject = toRecord(guidance.technical_reject);
+    const riskFlags = toStringList(guidance.risk_flags || strategy.risk_flags).join(" / ") || "-";
+    const visualFocus = toStringList(guidance.visual_focus || strategy.visual_focus).join(" / ") || "-";
+    const sceneText = String(guidance.scene_label || guidance.scene || strategy.scene_label || strategy.scene || "-");
+    const frameIntervalSec =
+      parseNumberValue(extractionRuntime.interval_sec) ??
+      parseNumberValue(detailJobOptionsRecord?.frame_interval_sec) ??
+      parseNumberValue(detailAI2ExtractionRuntime?.interval_sec);
+    const qualityText = qualityWeights
+      ? [
+          `语义 ${parseNumberValue(qualityWeights.semantic)?.toFixed(2) ?? "-"}`,
+          `清晰 ${parseNumberValue(qualityWeights.clarity)?.toFixed(2) ?? "-"}`,
+          `循环 ${parseNumberValue(qualityWeights.loop)?.toFixed(2) ?? "-"}`,
+          `效率 ${parseNumberValue(qualityWeights.efficiency)?.toFixed(2) ?? "-"}`,
+        ].join(" · ")
+      : "-";
+    return [
+      {
+        key: "scene",
+        label: "执行场景",
+        value: sceneText,
+        path: "options.ai2_guidance_v1.scene(_label)",
+        note: "AI2/worker 当前执行的场景轨道。",
+      },
+      {
+        key: "focus",
+        label: "视觉聚焦",
+        value: visualFocus,
+        path: "options.ai2_guidance_v1.visual_focus",
+        note: "worker 调参时使用的聚焦目标。",
+      },
+      {
+        key: "risk_flags",
+        label: "风险标记",
+        value: riskFlags,
+        path: "options.ai2_guidance_v1.risk_flags",
+        note: "AI1/AI2 传递到 worker 的风险标签。",
+      },
+      {
+        key: "quality_weights",
+        label: "评分权重",
+        value: qualityText,
+        path: "options.ai2_guidance_v1.quality_weights",
+        note: "V2 打分器权重（已硬生效）。",
+      },
+      {
+        key: "technical_reject",
+        label: "技术拒绝规则",
+        value: technicalReject ? formatPrettyJSON(technicalReject) : "-",
+        path: "options.ai2_guidance_v1.technical_reject",
+        note: "模糊/水印/暗光等硬过滤规则。",
+      },
+      {
+        key: "applied_tuning",
+        label: "worker 调参结果",
+        value: appliedTuning ? formatPrettyJSON(appliedTuning) : "-",
+        path: "options.ai2_worker_strategy_v1.applied_tuning",
+        note: "本次 worker 真实应用的调参项。",
+      },
+      {
+        key: "runtime_blur",
+        label: "运行时清晰门槛",
+        value:
+          parseNumberValue(qualityRuntime.still_min_blur_score) !== undefined
+            ? String(parseNumberValue(qualityRuntime.still_min_blur_score))
+            : "-",
+        path: "metrics.<format>_quality_settings_v1.still_min_blur_score",
+        note: "当前任务实际执行的清晰度门槛。",
+      },
+      {
+        key: "runtime_brightness",
+        label: "运行时亮度下限",
+        value:
+          parseNumberValue(qualityRuntime.min_brightness) !== undefined
+            ? String(parseNumberValue(qualityRuntime.min_brightness))
+            : "-",
+        path: "metrics.<format>_quality_settings_v1.min_brightness",
+        note: "低光场景会自动调整该阈值。",
+      },
+      {
+        key: "runtime_interval",
+        label: "运行时抽帧间隔(s)",
+        value: frameIntervalSec !== undefined ? frameIntervalSec.toFixed(3) : "-",
+        path: "metrics.<format>_extraction_v1.interval_sec",
+        note: "动作场景/风险会触发更密集抽帧。",
+      },
+      {
+        key: "runtime_selector",
+        label: "帧选择器版本",
+        value: String(
+          extractionRuntime.selector_version ||
+            guidance.selector_version ||
+            guidance.worker_strategy_tag ||
+            "-"
+        ),
+        path: "metrics.<format>_extraction_v1.selector_version",
+        note: "当前任务采用的质量选择器版本。",
+      },
+    ];
+  }, [
+    detailAI2ExtractionRuntime,
+    detailAI2Guidance,
+    detailAI2QualitySettingsRuntime,
+    detailAI2WorkerStrategy,
+    detailJobOptionsRecord?.frame_interval_sec,
+  ]);
+  const hasAI2WorkerRuntimeData = !!(
+    detailAI2Guidance ||
+    detailAI2WorkerStrategy ||
+    detailAI2QualitySettingsRuntime ||
+    detailAI2ExtractionRuntime ||
+    detailAI2FrameQualityReport
+  );
+  const detailAI3LatestReview = useMemo(() => {
+    return detailAIImageReviewRows.length ? detailAIImageReviewRows[0] : null;
+  }, [detailAIImageReviewRows]);
+  const hasAI3RuntimeData = !!(detailAI3LatestReview || detailAI3RuntimeSummary);
+  const detailAI3RuntimeJSON = useMemo(() => {
+    return formatPrettyJSON({
+      latest_ai_image_review: detailAI3LatestReview || {},
+      ai3_runtime_summary: detailAI3RuntimeSummary || {},
+    });
+  }, [detailAI3LatestReview, detailAI3RuntimeSummary]);
+  const detailAIFlowTimelineSteps = useMemo(() => {
+    const sceneText = String(
+      detailAI1AppliedStrategyProfile?.scene_label ||
+        detailAI1AppliedStrategyProfile?.scene ||
+        detailAI1AdvancedOptions?.scene ||
+        "-"
+    );
+    const strategyVersion = String(detailAI1AppliedStrategyProfile?.version || "-");
+    const strategySource = String(detailAI1AppliedStrategyTrace?.source || "-");
+    const strategyScene = String(
+      detailAI1AppliedStrategyTrace?.matched_scene ||
+        detailAI1AppliedStrategyTrace?.resolved_scene ||
+        detailAI1AppliedStrategyProfile?.scene ||
+        "-"
+    );
+    const ai2Objective = String(detailAI1AI2Instruction?.objective || "-");
+    const ai2Must = toStringList(detailAI1AI2Instruction?.must_capture).join(" / ") || "-";
+    const ai2Avoid = toStringList(detailAI1AI2Instruction?.avoid).join(" / ") || "-";
+    const appliedTuning = toRecord(detailAI2WorkerStrategy?.applied_tuning);
+    const appliedTuningKeys = appliedTuning ? Object.keys(appliedTuning).filter(Boolean) : [];
+    const selectorVersion = String(detailAI2ExtractionRuntime?.selector_version || detailAI2Guidance?.selector_version || "-");
+    const intervalText =
+      parseNumberValue(detailAI2ExtractionRuntime?.interval_sec) !== undefined
+        ? `${parseNumberValue(detailAI2ExtractionRuntime?.interval_sec)?.toFixed(3)}s`
+        : "-";
+    const ai3Recommendation = String(
+      detailAI3LatestReview?.recommendation || detailAI3RuntimeSummary?.recommendation || ""
+    )
+      .trim()
+      .toLowerCase();
+    const ai3DeliverCount =
+      parseNumberValue(detailAI3LatestReview?.deliver_count) ??
+      parseNumberValue(detailAI3RuntimeSummary?.deliver_count) ??
+      0;
+    const ai3RejectCount =
+      parseNumberValue(detailAI3LatestReview?.reject_count) ??
+      parseNumberValue(detailAI3RuntimeSummary?.reject_count) ??
+      0;
+    const ai3SummaryNote =
+      String(detailAI3LatestReview?.summary_note || toRecord(detailAI3RuntimeSummary?.summary)?.note || "-");
+
+    const ai3Status: "done" | "warn" | "pending" =
+      ai3Recommendation === "deliver"
+        ? "done"
+        : ai3Recommendation === "deliver_with_fallback" || ai3Recommendation === "need_manual_review" || ai3Recommendation === "reject"
+          ? "warn"
+          : "pending";
+    const ai3RecommendationLabel = ai3Recommendation
+      ? imageReviewRecommendationLabel(ai3Recommendation)
+      : "等待质量结论";
+    const pipelineStatus: "done" | "warn" | "pending" = detailPipelineAlignmentReport
+      ? detailPipelineAlignmentSummary.status === "pass"
+        ? "done"
+        : "warn"
+      : "pending";
+    const pipelineSummary = detailPipelineAlignmentReport
+      ? `status=${detailPipelineAlignmentSummary.status} · pass=${detailPipelineAlignmentSummary.passCount} · warn=${detailPipelineAlignmentSummary.warnCount} · fail=${detailPipelineAlignmentSummary.failCount}`
+      : "尚未生成对照报告";
+    const pipelineDetail = detailPipelineAlignmentReport
+      ? `scene=${detailPipelineAlignmentSummary.sceneLabel} / checks=${detailPipelineAlignmentSummary.totalChecks}`
+      : "等待 AI1/AI2/Worker/AI3 关键指标归档";
+
+    return [
+      {
+        key: "ai1_strategy_hit",
+        title: "AI1 命中策略",
+        status: sceneText !== "-" ? ("done" as const) : ("pending" as const),
+        summary: `${sceneText}（版本 ${strategyVersion}）`,
+        detail: `source=${strategySource} / matched_scene=${strategyScene}`,
+        path: "input.applied_strategy_profile + input.applied_strategy_trace",
+        focusTarget: "ai1_input" as DetailTimelineFocusTarget,
+      },
+      {
+        key: "ai2_instruction",
+        title: "AI2 执行指令",
+        status: ai2Objective !== "-" ? ("done" as const) : ("pending" as const),
+        summary: `objective=${ai2Objective}`,
+        detail: `must=${ai2Must} | avoid=${ai2Avoid}`,
+        path: "output.ai2_instruction",
+        focusTarget: "ai1_output_trace" as DetailTimelineFocusTarget,
+      },
+      {
+        key: "worker_tuning",
+        title: "Worker 调参生效",
+        status:
+          appliedTuningKeys.length > 0
+            ? ("done" as const)
+            : detailAI2WorkerStrategy
+              ? ("warn" as const)
+              : ("pending" as const),
+        summary: `selector=${selectorVersion} / interval=${intervalText}`,
+        detail: appliedTuningKeys.length ? `applied_tuning=${appliedTuningKeys.join(", ")}` : "暂无调参键（可能采用默认参数）",
+        path: "options.ai2_worker_strategy_v1 + metrics.<format>_extraction_v1",
+        focusTarget: "worker_runtime" as DetailTimelineFocusTarget,
+      },
+      {
+        key: "pipeline_alignment_report",
+        title: "主线对照报告",
+        status: pipelineStatus,
+        summary: pipelineSummary,
+        detail: pipelineDetail,
+        path: "output.pipeline_alignment_report_v1 / trace.pipeline_alignment_report_v1",
+        focusTarget: "ai1_output_trace" as DetailTimelineFocusTarget,
+      },
+      {
+        key: "ai3_quality_result",
+        title: "AI3 质量结论",
+        status: ai3Status,
+        summary: `${ai3RecommendationLabel}（deliver=${ai3DeliverCount} / reject=${ai3RejectCount}）`,
+        detail: ai3SummaryNote || "-",
+        path: "ai_image_reviews[0] / metrics.<format>_ai3_review_v1",
+        focusTarget: "ai3_runtime" as DetailTimelineFocusTarget,
+      },
+    ];
+  }, [
+    detailAI1AI2Instruction,
+    detailAI1AdvancedOptions?.scene,
+    detailAI1AppliedStrategyProfile?.scene,
+    detailAI1AppliedStrategyProfile?.scene_label,
+    detailAI1AppliedStrategyProfile?.version,
+    detailAI1AppliedStrategyTrace?.matched_scene,
+    detailAI1AppliedStrategyTrace?.resolved_scene,
+    detailAI1AppliedStrategyTrace?.source,
+    detailAI2ExtractionRuntime,
+    detailAI2Guidance?.selector_version,
+    detailAI2WorkerStrategy,
+    detailPipelineAlignmentReport,
+    detailPipelineAlignmentSummary.failCount,
+    detailPipelineAlignmentSummary.passCount,
+    detailPipelineAlignmentSummary.sceneLabel,
+    detailPipelineAlignmentSummary.status,
+    detailPipelineAlignmentSummary.totalChecks,
+    detailPipelineAlignmentSummary.warnCount,
+    detailAI3LatestReview,
+    detailAI3RuntimeSummary,
+  ]);
   const detailAI1DebugJSON = useMemo(() => {
     if (!detailAI1Debug) {
       return {
@@ -4011,6 +5309,166 @@ export default function AdminUserVideoJobsPage() {
       }))
       .slice(0, 24);
   }, [detailAIReviewByOutputID, detailEvaluationByOutputID, detailGIFMainOutputs]);
+  const exportPipelineAlignmentJSON = useCallback(() => {
+    if (!detail || !detailPipelineAlignmentReport) {
+      setExportNotice("导出失败：当前任务缺少主线对照报告数据");
+      return;
+    }
+    try {
+      const requestedFormat = String(
+        detailPipelineAlignmentReport.requested_format || detailAI1Debug?.requested_format || "unknown"
+      )
+        .trim()
+        .toLowerCase();
+      const ai2Node = toRecord(detailPipelineAlignmentReport.ai2) || {};
+      const workerNode = toRecord(detailPipelineAlignmentReport.worker) || {};
+      const ai3Node = toRecord(detailPipelineAlignmentReport.ai3) || {};
+      const ai3Review = toRecord(ai3Node.review) || {};
+      const frameQualitySummary = toRecord(workerNode.frame_quality_summary) || {};
+      const sceneBaselineDiff = toRecord(detailPipelineAlignmentReport.scene_baseline_diff_v1) || {};
+      const payload = {
+        schema_version: "pipeline_alignment_export_v1",
+        exported_at: new Date().toISOString(),
+        job_id: detail.job.id,
+        requested_format: requestedFormat,
+        scene: detailPipelineAlignmentSummary.sceneLabel,
+        summary: {
+          status: detailPipelineAlignmentSummary.status,
+          pass_count: detailPipelineAlignmentSummary.passCount,
+          warn_count: detailPipelineAlignmentSummary.warnCount,
+          fail_count: detailPipelineAlignmentSummary.failCount,
+          total_checks: detailPipelineAlignmentSummary.totalChecks,
+        },
+        checks: detailPipelineAlignmentChecks,
+        mainline_diagnostics: {
+          ai2: {
+            objective: String(ai2Node.objective || ""),
+            style_direction: String(ai2Node.style_direction || ""),
+            scoring_formula: String(ai2Node.scoring_formula || ""),
+            selection_policy: String(ai2Node.selection_policy || ""),
+            requested_quality_weights: toRecord(ai2Node.requested_quality_weights) || {},
+            effective_quality_weights: toRecord(ai2Node.effective_quality_weights) || {},
+          },
+          worker: {
+            stage: toRecord(workerNode.stage) || {},
+            technical_reject: toRecord(workerNode.technical_reject) || {},
+            frame_quality_summary: frameQualitySummary,
+          },
+          ai3: {
+            stage: String(ai3Node.stage || ""),
+            recommendation: String(ai3Review.recommendation || ai3Review.final_recommendation || ""),
+            summary_note: String(ai3Review.summary_note || ""),
+          },
+        },
+        scene_baseline_diff_v1: sceneBaselineDiff,
+      };
+      const filename = `pipeline-alignment-job-${detail.job.id}-${requestedFormat}-${Date.now()}.json`;
+      downloadTextFile(filename, formatPrettyJSON(payload), "application/json;charset=utf-8;");
+      setExportNotice(`导出成功：${filename}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出失败";
+      setExportNotice(`导出失败：${message}`);
+    }
+  }, [
+    detail,
+    detailAI1Debug?.requested_format,
+    detailPipelineAlignmentChecks,
+    detailPipelineAlignmentReport,
+    detailPipelineAlignmentSummary.failCount,
+    detailPipelineAlignmentSummary.passCount,
+    detailPipelineAlignmentSummary.sceneLabel,
+    detailPipelineAlignmentSummary.status,
+    detailPipelineAlignmentSummary.totalChecks,
+    detailPipelineAlignmentSummary.warnCount,
+    setExportNotice,
+  ]);
+  const exportPipelineAlignmentCSV = useCallback(() => {
+    if (!detail || !detailPipelineAlignmentReport) {
+      setExportNotice("导出失败：当前任务缺少主线对照报告数据");
+      return;
+    }
+    try {
+      const requestedFormat = String(
+        detailPipelineAlignmentReport.requested_format || detailAI1Debug?.requested_format || "unknown"
+      )
+        .trim()
+        .toLowerCase();
+      const ai2Node = toRecord(detailPipelineAlignmentReport.ai2) || {};
+      const workerNode = toRecord(detailPipelineAlignmentReport.worker) || {};
+      const ai3Node = toRecord(detailPipelineAlignmentReport.ai3) || {};
+      const ai3Review = toRecord(ai3Node.review) || {};
+      const workerStage = toRecord(workerNode.stage) || {};
+      const sceneBaselineDiff = toRecord(detailPipelineAlignmentReport.scene_baseline_diff_v1) || {};
+      const checks = detailPipelineAlignmentChecks.length
+        ? detailPipelineAlignmentChecks
+        : [
+            {
+              key: "-",
+              label: "无检查项",
+              status: "warn",
+              detail: "报告中未包含 consistency_checks",
+              value: null,
+            },
+          ];
+      const rows = checks.map((check) => ({
+        job_id: detail.job.id,
+        requested_format: requestedFormat,
+        scene: detailPipelineAlignmentSummary.sceneLabel,
+        report_status: detailPipelineAlignmentSummary.status,
+        check_key: check.key,
+        check_label: check.label,
+        check_status: check.status,
+        check_detail: check.detail || "",
+        check_value: check.value ? formatPrettyJSON(check.value) : "",
+        ai2_objective: String(ai2Node.objective || ""),
+        ai2_scoring_formula: String(ai2Node.scoring_formula || ""),
+        ai2_selection_policy: String(ai2Node.selection_policy || ""),
+        worker_stage: String(workerStage.worker || ""),
+        extraction_stage: String(workerStage.extraction || ""),
+        ai3_stage: String(ai3Node.stage || ""),
+        ai3_recommendation: String(ai3Review.recommendation || ai3Review.final_recommendation || ""),
+        baseline_scene: String(sceneBaselineDiff.baseline_scene || ""),
+        current_scene: String(sceneBaselineDiff.current_scene || ""),
+        baseline_summary: String(sceneBaselineDiff.recommendation_summary || ""),
+      }));
+      const headers = [
+        "job_id",
+        "requested_format",
+        "scene",
+        "report_status",
+        "check_key",
+        "check_label",
+        "check_status",
+        "check_detail",
+        "check_value",
+        "ai2_objective",
+        "ai2_scoring_formula",
+        "ai2_selection_policy",
+        "worker_stage",
+        "extraction_stage",
+        "ai3_stage",
+        "ai3_recommendation",
+        "baseline_scene",
+        "current_scene",
+        "baseline_summary",
+      ];
+      const csv = buildCSVText(headers, rows);
+      const filename = `pipeline-alignment-job-${detail.job.id}-${requestedFormat}-${Date.now()}.csv`;
+      downloadTextFile(filename, csv, "text/csv;charset=utf-8;");
+      setExportNotice(`导出成功：${filename}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "导出失败";
+      setExportNotice(`导出失败：${message}`);
+    }
+  }, [
+    detail,
+    detailAI1Debug?.requested_format,
+    detailPipelineAlignmentChecks,
+    detailPipelineAlignmentReport,
+    detailPipelineAlignmentSummary.sceneLabel,
+    detailPipelineAlignmentSummary.status,
+    setExportNotice,
+  ]);
   const exportAI1FieldAuditJSON = useCallback(() => {
     if (!detail || !detailAI1Debug) {
       setExportNotice("导出失败：当前任务缺少 AI1 调试数据");
@@ -4283,6 +5741,237 @@ export default function AdminUserVideoJobsPage() {
           >
             查询
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-cyan-100 bg-cyan-50/30 p-4 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-bold text-cyan-700">分表回填任务（历史 base → format split）</div>
+            <div className="text-xs text-cyan-700">
+              运行态：
+              <span
+                className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  splitBackfillStatus?.running ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"
+                }`}
+              >
+                {splitBackfillStatus?.running ? "运行中" : "空闲"}
+              </span>
+              {splitBackfillStatus?.stop_requested ? (
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                  停止中
+                </span>
+              ) : null}
+              {splitBackfillReport?.stopped ? (
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                  已停止
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>RunID: {splitBackfillStatus?.run_id || "-"}</span>
+            <span>开始: {formatTime(splitBackfillStatus?.started_at || splitBackfillReport?.started_at)}</span>
+            <span>心跳: {formatTime(splitBackfillStatus?.heartbeat_at)}</span>
+            <span>结束: {formatTime(splitBackfillStatus?.finished_at || splitBackfillReport?.finished_at)}</span>
+          </div>
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+          <span>运行实例: {splitBackfillLease?.owner_instance || "-"}</span>
+          <span>租约到期: {formatTime(splitBackfillLease?.expires_at)}</span>
+          <span>
+            租约剩余:
+            {splitBackfillStatus?.running
+              ? `${Math.max(0, Number(splitBackfillLease?.remaining_seconds || 0)).toLocaleString()}s`
+              : "-"}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${
+              splitBackfillLease?.can_takeover ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {splitBackfillLease?.can_takeover ? "可接管" : "租约有效"}
+          </span>
+          {splitBackfillLease?.is_local_owner ? (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700">本实例持有</span>
+          ) : null}
+          <span>超时阈值: {Number(splitBackfillLease?.timeout_seconds || 0)}s</span>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-12">
+          <label className="flex items-center gap-2 rounded-xl border border-cyan-200 bg-white px-3 py-2 text-xs text-slate-700 md:col-span-2">
+            <input
+              type="checkbox"
+              checked={splitBackfillApply}
+              onChange={(e) => setSplitBackfillApply(e.target.checked)}
+              disabled={Boolean(splitBackfillStatus?.running)}
+            />
+            真实写入（apply）
+          </label>
+          <input
+            value={splitBackfillBatchSize}
+            onChange={(e) => setSplitBackfillBatchSize(e.target.value)}
+            className={`${INPUT_CLASS} md:col-span-2`}
+            placeholder="batch-size"
+            disabled={Boolean(splitBackfillStatus?.running)}
+          />
+          <select
+            value={splitBackfillFormat}
+            onChange={(e) => setSplitBackfillFormat(e.target.value)}
+            className={`${SELECT_CLASS} md:col-span-2`}
+            disabled={Boolean(splitBackfillStatus?.running)}
+          >
+            <option value="all">格式：all</option>
+            <option value="gif">格式：gif</option>
+            <option value="png">格式：png</option>
+            <option value="jpg">格式：jpg</option>
+            <option value="webp">格式：webp</option>
+            <option value="mp4">格式：mp4</option>
+            <option value="live">格式：live</option>
+          </select>
+          <input
+            value={splitBackfillTables}
+            onChange={(e) => setSplitBackfillTables(e.target.value)}
+            className={`${INPUT_CLASS} md:col-span-4`}
+            placeholder="tables: jobs,outputs,packages,events,feedbacks"
+            disabled={Boolean(splitBackfillStatus?.running)}
+          />
+          <div className="flex items-center gap-2 md:col-span-2">
+            <button
+              type="button"
+              className={PRIMARY_BUTTON_CLASS}
+              onClick={() => void startSplitBackfill()}
+              disabled={splitBackfillStarting || Boolean(splitBackfillStatus?.running)}
+            >
+              {splitBackfillStarting ? "启动中..." : "启动回填"}
+            </button>
+            <button
+              type="button"
+              className={`${TINT_BUTTON_CLASS} border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100`}
+              onClick={() => void stopSplitBackfill()}
+              disabled={splitBackfillStopping || !Boolean(splitBackfillStatus?.running)}
+            >
+              {splitBackfillStopping ? "停止中..." : "停止"}
+            </button>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_CLASS}
+              onClick={() => void loadSplitBackfillStatus()}
+              disabled={splitBackfillLoading}
+            >
+              刷新
+            </button>
+          </div>
+        </div>
+
+        {splitBackfillStatus?.last_error ? (
+          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            最近错误：{splitBackfillStatus.last_error}
+          </div>
+        ) : null}
+
+        <div className="mt-3 overflow-x-auto rounded-2xl border border-cyan-100 bg-white">
+          <table className="min-w-full text-xs">
+            <thead className="bg-cyan-50 text-slate-600">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold">表</th>
+                <th className="px-3 py-2 text-right font-semibold">scanned</th>
+                <th className="px-3 py-2 text-right font-semibold">would_write</th>
+                <th className="px-3 py-2 text-right font-semibold">written</th>
+                <th className="px-3 py-2 text-right font-semibold">skipped</th>
+                <th className="px-3 py-2 text-right font-semibold">fallback</th>
+                <th className="px-3 py-2 text-right font-semibold">failed</th>
+                <th className="px-3 py-2 text-right font-semibold">last_id</th>
+              </tr>
+            </thead>
+            <tbody>
+              {splitBackfillTableRows.map((item) => (
+                <tr key={`split-backfill-${item.key}`} className="border-t border-cyan-50 text-slate-700">
+                  <td className="px-3 py-2 font-semibold">{item.label}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.scanned || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.would_write || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.written || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.skipped_by_format || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.fallback_used || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.failed || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{Number(item.stats?.last_id || 0).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-3 overflow-x-auto rounded-2xl border border-cyan-100 bg-white">
+          <table className="min-w-full text-xs">
+            <thead className="bg-cyan-50 text-slate-600">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold">最近执行</th>
+                <th className="px-3 py-2 text-left font-semibold">状态</th>
+                <th className="px-3 py-2 text-left font-semibold">参数</th>
+                <th className="px-3 py-2 text-right font-semibold">written</th>
+                <th className="px-3 py-2 text-right font-semibold">failed</th>
+                <th className="px-3 py-2 text-left font-semibold">开始/结束</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(splitBackfillStatus?.history || []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-slate-500" colSpan={6}>
+                    暂无历史执行记录
+                  </td>
+                </tr>
+              ) : (
+                (splitBackfillStatus?.history || []).map((item, idx) => {
+                  const status = (item.status || "").toLowerCase();
+                  const statusClass =
+                    status === "done"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : status === "stopped"
+                        ? "bg-amber-100 text-amber-700"
+                        : status === "done_with_errors"
+                          ? "bg-orange-100 text-orange-700"
+                          : "bg-rose-100 text-rose-700";
+                  const totalWritten =
+                    Number(item.report?.jobs?.written || 0) +
+                    Number(item.report?.outputs?.written || 0) +
+                    Number(item.report?.packages?.written || 0) +
+                    Number(item.report?.events?.written || 0) +
+                    Number(item.report?.feedbacks?.written || 0);
+                  const totalFailed =
+                    Number(item.report?.jobs?.failed || 0) +
+                    Number(item.report?.outputs?.failed || 0) +
+                    Number(item.report?.packages?.failed || 0) +
+                    Number(item.report?.events?.failed || 0) +
+                    Number(item.report?.feedbacks?.failed || 0);
+                  return (
+                    <tr key={`${item.run_id || "history"}-${idx}`} className="border-t border-cyan-50 text-slate-700">
+                      <td className="px-3 py-2">
+                        <div className="font-semibold">{item.run_id || "-"}</div>
+                        <div className="text-[11px] text-slate-500">admin #{item.requested_by || 0}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}>
+                          {status || "unknown"}
+                        </span>
+                        {item.last_error ? <div className="mt-1 text-[11px] text-rose-600">{item.last_error}</div> : null}
+                      </td>
+                      <td className="px-3 py-2 text-[11px] text-slate-600">
+                        format={item.options?.format || "all"} · apply={item.options?.apply ? "1" : "0"}
+                        <br />
+                        batch={item.options?.batch_size || 0} · tables={item.options?.tables || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right">{totalWritten.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right">{totalFailed.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-[11px] text-slate-600">
+                        <div>{formatTime(item.started_at)}</div>
+                        <div>{formatTime(item.finished_at)}</div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -5467,6 +7156,440 @@ export default function AdminUserVideoJobsPage() {
                   </div>
                 </div>
 
+                {detailPipelineAlignmentReport ? (
+                  <div className="mt-3 rounded-xl border border-indigo-200 bg-white p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-indigo-700">
+                        <span className="font-semibold uppercase tracking-wider">AI1→AI2→Worker→AI3 对照报告</span>
+                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">
+                          场景 {detailPipelineAlignmentSummary.sceneLabel}
+                        </span>
+                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">
+                          检查项 {detailPipelineAlignmentSummary.totalChecks}
+                        </span>
+                        <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                          通过 {detailPipelineAlignmentSummary.passCount}
+                        </span>
+                        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                          风险 {detailPipelineAlignmentSummary.warnCount}
+                        </span>
+                        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">
+                          失败 {detailPipelineAlignmentSummary.failCount}
+                        </span>
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            pipelineAlignmentStatusMeta(detailPipelineAlignmentSummary.status).className
+                          }`}
+                        >
+                          总状态 {pipelineAlignmentStatusMeta(detailPipelineAlignmentSummary.status).label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={exportPipelineAlignmentJSON}
+                          className="inline-flex h-7 items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                        >
+                          导出 JSON
+                        </button>
+                        <button
+                          type="button"
+                          onClick={exportPipelineAlignmentCSV}
+                          className="inline-flex h-7 items-center rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                        >
+                          导出 CSV
+                        </button>
+                      </div>
+                    </div>
+
+                    {detailPipelineAlignmentChecks.length ? (
+                      <div className="mt-2 grid gap-2 md:grid-cols-2">
+                        {detailPipelineAlignmentChecks.map((row) => (
+                          <div
+                            key={`pipeline-check-${row.key}`}
+                            className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-2"
+                            title={row.detail || row.label}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs font-semibold text-slate-700">{row.label}</div>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                  pipelineAlignmentStatusMeta(row.status).className
+                                }`}
+                              >
+                                {pipelineAlignmentStatusMeta(row.status).label}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-600">{row.detail || "-"}</div>
+                            {row.value ? (
+                              <div className="mt-1 rounded border border-indigo-100 bg-white px-2 py-1 text-[10px] text-slate-600">
+                                <div className="font-semibold text-indigo-700">值：</div>
+                                <pre className="mt-0.5 max-h-20 overflow-auto whitespace-pre-wrap break-all text-[10px] text-slate-600">
+                                  {formatPrettyJSON(row.value)}
+                                </pre>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {detailPipelineSceneBaselineDiff ? (
+                      <div className="mt-2 rounded-lg border border-teal-100 bg-teal-50/40 p-2">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-teal-700">
+                          <span className="font-semibold">场景基线差异（default 对比）</span>
+                          <span className="inline-flex rounded-full border border-teal-200 bg-white px-2 py-0.5">
+                            baseline {detailPipelineSceneBaselineDiff.baselineScene}
+                          </span>
+                          <span className="inline-flex rounded-full border border-teal-200 bg-white px-2 py-0.5">
+                            current {detailPipelineSceneBaselineDiff.currentScene}
+                          </span>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              detailPipelineSceneBaselineDiff.sceneChanged
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-emerald-100 text-emerald-700"
+                            }`}
+                          >
+                            {detailPipelineSceneBaselineDiff.sceneChanged ? "存在场景差异" : "当前即基线"}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-600">{detailPipelineSceneBaselineDiff.summary || "-"}</div>
+                        <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                          {detailPipelineSceneBaselineDiff.weightDiffKeys.length ? (
+                            <span className="rounded-full border border-teal-200 bg-white px-2 py-0.5 text-teal-700">
+                              权重差异: {detailPipelineSceneBaselineDiff.weightDiffKeys.join("、")}
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600">
+                              权重差异: 无
+                            </span>
+                          )}
+                          {detailPipelineSceneBaselineDiff.mustAdded.length ? (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                              must_capture新增: {detailPipelineSceneBaselineDiff.mustAdded.join("、")}
+                            </span>
+                          ) : null}
+                          {detailPipelineSceneBaselineDiff.avoidAdded.length ? (
+                            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">
+                              avoid新增: {detailPipelineSceneBaselineDiff.avoidAdded.join("、")}
+                            </span>
+                          ) : null}
+                          {detailPipelineSceneBaselineDiff.technicalChanged.length ? (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                              门槛变化: {detailPipelineSceneBaselineDiff.technicalChanged.join("、")}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <details className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/30 p-2 text-xs text-slate-700">
+                      <summary className="cursor-pointer font-semibold text-indigo-700">
+                        查看对照报告原始 JSON（pipeline_alignment_report_v1）
+                      </summary>
+                      <pre className="mt-2 max-h-52 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">
+                        {formatPrettyJSON(detailPipelineAlignmentReport)}
+                      </pre>
+                    </details>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                  <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-sky-700">
+                      AI1 导演诊断全景 · 输入侧（AI 看到了什么）
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {detailAI1DiagnosisInputRows.map((row) => (
+                        <div key={`ai1-diagnosis-input-${row.key}`} className="rounded-lg border border-sky-100 bg-white p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-slate-700">{row.label}</div>
+                            <div className="text-[10px] text-slate-400">{row.path}</div>
+                          </div>
+                          <div className="mt-1 whitespace-pre-wrap break-all text-xs text-slate-700">{row.value || "-"}</div>
+                          <div className="mt-1 text-[10px] text-slate-500">{row.note}</div>
+                        </div>
+                      ))}
+                      {detailAI1VisualSamples.length ? (
+                        <div className="rounded-lg border border-sky-100 bg-white p-2">
+                          <div className="text-xs font-semibold text-slate-700">视觉采样证据（AI1 输入缩略图）</div>
+                          <div className="mt-1 text-[10px] text-slate-500">
+                            来源：input.visual_samples（最多 6 张）
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {detailAI1VisualSamples.map((sample, idx) => {
+                              const src = sample.imageDataURL || sample.imageURL || "";
+                              return (
+                                <div key={`ai1-visual-sample-${idx}`} className="overflow-hidden rounded-lg border border-sky-100 bg-slate-50">
+                                  {src ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={src} alt={`ai1 sample ${sample.index || idx + 1}`} className="h-24 w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-24 items-center justify-center text-[11px] text-slate-400">无预览</div>
+                                  )}
+                                  <div className="border-t border-sky-100 px-1.5 py-1 text-[10px] text-slate-600">
+                                    #{sample.index || idx + 1} · {sample.timestampSec.toFixed(2)}s
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-violet-700">
+                      AI1 导演诊断全景 · 输出侧（AI1 下达了什么）
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {detailAI1DiagnosisOutputRows.map((row) => (
+                        <div key={`ai1-diagnosis-output-${row.key}`} className="rounded-lg border border-violet-100 bg-white p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-slate-700">{row.label}</div>
+                            <div className="text-[10px] text-slate-400">{row.path}</div>
+                          </div>
+                          <div className="mt-1 whitespace-pre-wrap break-all text-xs text-slate-700">{row.value || "-"}</div>
+                          <div className="mt-1 text-[10px] text-slate-500">{row.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {hasAI2WorkerRuntimeData ? (
+                  <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">
+                      AI2 / Worker 硬生效回放（本任务实际执行参数）
+                    </div>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      {detailAI2WorkerRows.map((row) => (
+                        <div key={`ai2-worker-row-${row.key}`} className="rounded-lg border border-emerald-100 bg-white p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-slate-700">{row.label}</div>
+                            <div className="text-[10px] text-slate-400">{row.path}</div>
+                          </div>
+                          <div className="mt-1 whitespace-pre-wrap break-all text-xs text-slate-700">{row.value || "-"}</div>
+                          <div className="mt-1 text-[10px] text-slate-500">{row.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {detailAI2WeightHardEffect.hasAnyWeights ? (
+                      <div className="mt-2 rounded-lg border border-emerald-100 bg-white p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-xs font-semibold text-slate-700">AI2 权重硬生效校验</div>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${detailAI2WeightHardEffect.statusClass}`}
+                          >
+                            {detailAI2WeightHardEffect.statusLabel}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            mode={detailAI2WeightHardEffect.scoringMode} · selector={detailAI2WeightHardEffect.selectorVersion || "-"}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-600">{detailAI2WeightHardEffect.summary}</div>
+                        <div className="mt-1 rounded border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">
+                          公式：{detailAI2WeightHardEffect.formula}
+                        </div>
+                        <div className="mt-2 overflow-x-auto rounded border border-slate-100">
+                          <table className="min-w-full text-[11px]">
+                            <thead className="bg-slate-50 text-slate-500">
+                              <tr>
+                                <th className="px-2 py-1 text-left font-semibold">维度</th>
+                                <th className="px-2 py-1 text-left font-semibold">AI1 指令</th>
+                                <th className="px-2 py-1 text-left font-semibold">AI2 Guidance</th>
+                                <th className="px-2 py-1 text-left font-semibold">质量报告</th>
+                                <th className="px-2 py-1 text-left font-semibold">Δ(1→2)</th>
+                                <th className="px-2 py-1 text-left font-semibold">Δ(2→报)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detailAI2WeightHardEffect.rows.map((row) => (
+                                <tr key={`ai2-weight-row-${row.key}`} className="border-t border-slate-100 text-slate-700">
+                                  <td className="px-2 py-1 font-semibold">{row.label}</td>
+                                  <td className="px-2 py-1">{row.requestedText}</td>
+                                  <td className="px-2 py-1">{row.guidanceText}</td>
+                                  <td className="px-2 py-1">{row.reportText}</td>
+                                  <td className="px-2 py-1">{row.reqGuidanceDiffText}</td>
+                                  <td className="px-2 py-1">{row.guidanceReportDiffText}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="mt-2 grid gap-2 md:grid-cols-2">
+                          <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                            总帧 {detailAI2WeightHardEffect.qualityStats.totalFramesText} · 保留{" "}
+                            {detailAI2WeightHardEffect.qualityStats.keptFramesText} · 平均分{" "}
+                            {detailAI2WeightHardEffect.qualityStats.avgKeptScoreText}
+                          </div>
+                          <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                            回退策略：{detailAI2WeightHardEffect.qualityStats.fallbackText} ·{" "}
+                            {detailAI2WeightHardEffect.qualityStats.rejectedText}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                    {detailAI2CandidateScoreRows.length ? (
+                      <div className="mt-2 rounded-lg border border-emerald-100 bg-white p-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-slate-700">逐候选帧评分明细（AI2 权重拆解）</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={detailAI2CandidateDecisionFilter}
+                              onChange={(e) =>
+                                setDetailAI2CandidateDecisionFilter(
+                                  e.target.value as
+                                    | "all"
+                                    | "kept"
+                                    | "rejected"
+                                    | "dropped_by_budget"
+                                    | "selected"
+                                    | "unlabeled"
+                                )
+                              }
+                              className="h-7 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                            >
+                              <option value="all">全部 ({detailAI2CandidateDecisionStats.total})</option>
+                              <option value="kept">仅保留 ({detailAI2CandidateDecisionStats.kept})</option>
+                              <option value="rejected">仅规则过滤 ({detailAI2CandidateDecisionStats.rejected})</option>
+                              <option value="dropped_by_budget">仅预算淘汰 ({detailAI2CandidateDecisionStats.dropped_by_budget})</option>
+                              <option value="selected">仅候选中 ({detailAI2CandidateDecisionStats.selected})</option>
+                              <option value="unlabeled">仅未标注 ({detailAI2CandidateDecisionStats.unlabeled})</option>
+                            </select>
+                            <button
+                              type="button"
+                              disabled={exportingAI2CandidateScoresCSV || !detailAI2CandidateScoreFilteredRows.length}
+                              onClick={() => {
+                                exportAI2CandidateScoresCSV();
+                              }}
+                              className="inline-flex h-7 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {exportingAI2CandidateScoresCSV ? "导出中..." : "导出CSV"}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[10px] text-slate-500">
+                          当前筛选 {detailAI2CandidateScoreFilteredRows.length} / {detailAI2CandidateScoreRows.length} 条（按 final_score 排序）
+                        </div>
+                        {!detailAI2CandidateScoreFilteredRows.length ? (
+                          <div className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+                            当前筛选条件下没有候选评分明细。
+                          </div>
+                        ) : (
+                          <div className="mt-2 max-h-72 overflow-auto rounded border border-slate-100">
+                          <table className="min-w-[1080px] text-[11px]">
+                            <thead className="bg-slate-50 text-slate-500">
+                              <tr>
+                                <th className="px-2 py-1 text-left font-semibold">排名</th>
+                                <th className="px-2 py-1 text-left font-semibold">帧</th>
+                                <th className="px-2 py-1 text-left font-semibold">决策</th>
+                                <th className="px-2 py-1 text-left font-semibold">总分</th>
+                                <th className="px-2 py-1 text-left font-semibold">语义项</th>
+                                <th className="px-2 py-1 text-left font-semibold">清晰项</th>
+                                <th className="px-2 py-1 text-left font-semibold">循环项</th>
+                                <th className="px-2 py-1 text-left font-semibold">效率项</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                                {detailAI2CandidateScoreFilteredRows.map((row) => (
+                                <tr key={`ai2-candidate-score-${row.rank}-${row.index}`} className="border-t border-slate-100 text-slate-700">
+                                  <td className="px-2 py-1">#{row.rank || "-"}</td>
+                                  <td className="px-2 py-1">
+                                    <div className="max-w-[180px] truncate" title={row.frameName}>
+                                      {row.frameName}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400">idx {row.index} · scene {row.sceneID || "-"}</div>
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${row.decisionClassName}`}>
+                                      {row.decisionText}
+                                    </span>
+                                    {row.rejectReason !== "-" ? (
+                                      <div className="mt-1 text-[10px] text-slate-500">{row.rejectReason}</div>
+                                    ) : null}
+                                  </td>
+                                  <td className="px-2 py-1 font-semibold">{row.finalScoreText}</td>
+                                  <td className="px-2 py-1">{row.semanticTerm}</td>
+                                  <td className="px-2 py-1">{row.clarityTerm}</td>
+                                  <td className="px-2 py-1">{row.loopTerm}</td>
+                                  <td className="px-2 py-1">{row.efficiencyTerm}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                    <details
+                      ref={workerRuntimeDetailsRef}
+                      className={`mt-2 rounded-lg border bg-white p-2 text-xs text-slate-700 ${
+                        detailTimelineFocus === "worker_runtime"
+                          ? "border-emerald-300 ring-2 ring-emerald-100"
+                          : "border-emerald-100"
+                      }`}
+                    >
+                      <summary className="cursor-pointer font-semibold text-emerald-700">
+                        查看 worker 运行时原始 JSON（guidance / strategy / quality / extraction / frame_quality）
+                      </summary>
+                      <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">
+                        {formatPrettyJSON({
+                          ai2_guidance_v1: detailAI2Guidance || {},
+                          ai2_worker_strategy_v1: detailAI2WorkerStrategy || {},
+                          quality_settings_runtime: detailAI2QualitySettingsRuntime || {},
+                          extraction_runtime: detailAI2ExtractionRuntime || {},
+                          frame_quality_report: detailAI2FrameQualityReport || {},
+                        })}
+                      </pre>
+                    </details>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 rounded-xl border border-cyan-100 bg-cyan-50/40 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-cyan-700">
+                    策略命中 → 调参生效 → 质量结果（闭环时间线）
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {detailAIFlowTimelineSteps.map((step, index) => {
+                      const statusMeta = aiFlowTimelineStatusMeta(step.status);
+                      const isFocused = detailTimelineFocus === step.focusTarget;
+                      return (
+                        <button
+                          type="button"
+                          key={`ai-flow-step-${step.key}`}
+                          onClick={() =>
+                            setDetailTimelineFocus((prev) => (prev === step.focusTarget ? "" : step.focusTarget))
+                          }
+                          className={`w-full rounded-lg border bg-white p-2 text-left transition ${
+                            isFocused
+                              ? "border-cyan-300 ring-2 ring-cyan-100"
+                              : "border-cyan-100 hover:border-cyan-200 hover:bg-cyan-50/20"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-cyan-100 px-1 text-[10px] font-semibold text-cyan-700">
+                              {index + 1}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-700">{step.title}</span>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta.className}`}>
+                              {statusMeta.label}
+                            </span>
+                            <span className="ml-auto text-[10px] text-slate-400">{step.path}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-700">{step.summary || "-"}</div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                            <span>{step.detail || "-"}</span>
+                            <span className="text-[10px] text-cyan-700">{isFocused ? "已定位" : "点击定位 JSON"}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {detailAI1FieldAuditAllRows.length ? (
                   <div className="mt-3 rounded-xl border border-indigo-100 bg-white p-2">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -5566,7 +7689,12 @@ export default function AdminUserVideoJobsPage() {
                 ) : null}
 
                 <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                  <details className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
+                  <details
+                    ref={ai1InputDetailsRef}
+                    className={`rounded-xl border bg-white p-2 text-xs text-slate-700 ${
+                      detailTimelineFocus === "ai1_input" ? "border-indigo-300 ring-2 ring-indigo-100" : "border-indigo-100"
+                    }`}
+                  >
                     <summary className="cursor-pointer font-semibold text-indigo-700">POST 给 AI：input</summary>
                     <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.input}</pre>
                   </details>
@@ -5578,11 +7706,33 @@ export default function AdminUserVideoJobsPage() {
                     <summary className="cursor-pointer font-semibold text-indigo-700">AI 返回：model_response</summary>
                     <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.modelResponse}</pre>
                   </details>
-                  <details className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
+                  <details
+                    ref={ai1OutputTraceDetailsRef}
+                    className={`rounded-xl border bg-white p-2 text-xs text-slate-700 ${
+                      detailTimelineFocus === "ai1_output_trace"
+                        ? "border-indigo-300 ring-2 ring-indigo-100"
+                        : "border-indigo-100"
+                    }`}
+                  >
                     <summary className="cursor-pointer font-semibold text-indigo-700">AI1 结构化输出：output / trace</summary>
                     <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.output}</pre>
                     <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">{detailAI1DebugJSON.trace}</pre>
                   </details>
+                  {hasAI3RuntimeData ? (
+                    <details
+                      ref={ai3RuntimeDetailsRef}
+                      className={`rounded-xl border bg-white p-2 text-xs text-slate-700 ${
+                        detailTimelineFocus === "ai3_runtime"
+                          ? "border-indigo-300 ring-2 ring-indigo-100"
+                          : "border-indigo-100"
+                      }`}
+                    >
+                      <summary className="cursor-pointer font-semibold text-indigo-700">AI3 质量结论：runtime JSON</summary>
+                      <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">
+                        {detailAI3RuntimeJSON}
+                      </pre>
+                    </details>
+                  ) : null}
                 </div>
               </div>
             ) : null}

@@ -22,6 +22,12 @@ type AdminVideoJobCost = {
   ai_duration_ms?: number;
 };
 
+type AdminVideoJobPointHold = {
+  status?: string;
+  reserved_points?: number;
+  settled_points?: number;
+};
+
 type AdminVideoJobAudit = {
   proposal_count?: number;
   deliver_count?: number;
@@ -46,6 +52,7 @@ type AdminVideoJobItem = {
   created_at?: string;
   user: AdminVideoJobUser;
   cost?: AdminVideoJobCost;
+  point_hold?: AdminVideoJobPointHold;
   audit?: AdminVideoJobAudit;
 };
 
@@ -127,6 +134,29 @@ function formatCurrency(value?: number, currency = "CNY") {
   const n = Number(value || 0);
   if (!Number.isFinite(n) || n <= 0) return "-";
   return `${currency.toUpperCase() === "CNY" ? "¥" : `${currency.toUpperCase()} `}${n.toFixed(4)}`;
+}
+
+function formatPoints(value?: number) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  return String(Math.round(n));
+}
+
+function pointHoldStatusLabel(value?: string) {
+  switch ((value || "").trim().toLowerCase()) {
+    case "settled":
+      return "已结算";
+    case "held":
+      return "预冻结";
+    case "released":
+      return "已释放";
+    case "cancelled":
+      return "已取消";
+    case "failed":
+      return "失败";
+    default:
+      return value || "-";
+  }
 }
 
 function statusLabel(status?: string) {
@@ -331,7 +361,7 @@ function KpiCard({
     orange: "border-orange-100 bg-orange-50/60 text-orange-700",
   }[tone];
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+    <div className={`rounded-xl border p-4 shadow-sm ${toneClass}`}>
       <div className="text-xs font-semibold opacity-90">{label}</div>
       <div className="mt-1 text-2xl font-black leading-none">{value}</div>
       {subText ? <div className="mt-1 text-[11px] opacity-90">{subText}</div> : null}
@@ -422,6 +452,8 @@ export default function AdminHighlightJobsPage() {
     let rerenderCount = 0;
     let aiCostCNY = 0;
     let aiCostUSD = 0;
+    let settledPoints = 0;
+    let reservedPoints = 0;
     for (const item of items) {
       const s = (item.status || "").toLowerCase();
       if (s === "running" || s === "queued") running += 1;
@@ -433,8 +465,22 @@ export default function AdminHighlightJobsPage() {
       rerenderCount += Number(item.audit?.rerender_count || 0);
       aiCostCNY += Number(item.cost?.ai_cost_cny || 0);
       aiCostUSD += Number(item.cost?.ai_cost_usd || 0);
+      settledPoints += Number(item.point_hold?.settled_points || 0);
+      reservedPoints += Number(item.point_hold?.reserved_points || 0);
     }
-    return { running, done, failed, proposalCount, deliverCount, feedbackCount, rerenderCount, aiCostCNY, aiCostUSD };
+    return {
+      running,
+      done,
+      failed,
+      proposalCount,
+      deliverCount,
+      feedbackCount,
+      rerenderCount,
+      aiCostCNY,
+      aiCostUSD,
+      settledPoints,
+      reservedPoints,
+    };
   }, [items]);
 
   const sourceReadStats = useMemo(() => {
@@ -496,9 +542,9 @@ export default function AdminHighlightJobsPage() {
         }
       />
 
-      <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-3 text-xs font-semibold tracking-wide text-slate-500">筛选条件</div>
-        <div className="grid gap-3 md:grid-cols-8">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 text-[13px] font-semibold tracking-wide text-slate-800">筛选条件</div>
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
           <label className="space-y-1">
             <span className="text-[11px] font-medium text-slate-500">用户ID</span>
             <input
@@ -560,7 +606,7 @@ export default function AdminHighlightJobsPage() {
               ))}
             </select>
           </label>
-          <label className="space-y-1 md:col-span-2">
+          <label className="space-y-1 sm:col-span-2 md:col-span-4 lg:col-span-2">
             <span className="text-[11px] font-medium text-slate-500">关键词</span>
             <input
               value={draftQuery}
@@ -569,7 +615,7 @@ export default function AdminHighlightJobsPage() {
               className={INPUT_CLASS}
             />
           </label>
-          <div className="flex items-end">
+          <div className="flex items-end sm:col-span-2 md:col-span-4 lg:col-span-1">
             <button onClick={applyFilters} className={`${PRIMARY_BUTTON_CLASS} w-full`}>
               查询
             </button>
@@ -577,7 +623,7 @@ export default function AdminHighlightJobsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 mt-5 mb-5">
         <KpiCard label="任务总数（当前筛选）" value={total} />
         <KpiCard label="处理中" value={stats.running} tone="emerald" />
         <KpiCard label="已完成" value={stats.done} tone="sky" />
@@ -598,26 +644,32 @@ export default function AdminHighlightJobsPage() {
         <KpiCard label="Rerender（当前页）" value={stats.rerenderCount} tone="orange" />
         <KpiCard label="异常任务（当前页）" value={pageAnomalyCount} tone="rose" />
         <KpiCard
-          label="AI成本（当前页）"
+          label="真实API成本（当前页）"
           value={<span className="text-lg">{formatCurrency(stats.aiCostCNY, "CNY")}</span>}
           tone="sky"
           subText={formatCurrency(stats.aiCostUSD, "USD")}
         />
+        <KpiCard
+          label="算力结算点数（当前页）"
+          value={<span className="text-lg">{formatPoints(stats.settledPoints)}</span>}
+          tone="emerald"
+          subText={`预冻结 ${formatPoints(stats.reservedPoints)}`}
+        />
       </div>
 
-      <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-        <div className="mb-2 text-xs font-semibold text-slate-500">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
+        <div className="mb-3 text-[13px] font-semibold text-slate-800">
           可读性快捷筛选（点击即生效）
-          {sourceReadReason !== "all" ? ` · 当前：${sourceReadReasonLabel(sourceReadReason)}` : ""}
+          {sourceReadReason !== "all" ? <span className="ml-2 font-normal text-slate-500">当前：{sourceReadReasonLabel(sourceReadReason)}</span> : ""}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => applySourceReadQuickFilter("all")}
-            className={`rounded-full border px-3 py-1 text-xs font-medium ${
+            className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition ${
               sourceReadReason === "all"
-                ? "border-slate-900 bg-slate-900 text-white"
-                : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-300"
             }`}
           >
             全部
@@ -627,10 +679,10 @@ export default function AdminHighlightJobsPage() {
               key={reason}
               type="button"
               onClick={() => applySourceReadQuickFilter(reason)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+              className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition ${
                 sourceReadReason === reason
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                  ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                  : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-300"
               }`}
             >
               {sourceReadReasonLabel(reason)}
@@ -643,20 +695,21 @@ export default function AdminHighlightJobsPage() {
         <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
       ) : null}
 
-      <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mt-5">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1660px] text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-4 py-3 font-semibold">任务</th>
-                <th className="px-4 py-3 font-semibold">用户</th>
-                <th className="px-4 py-3 font-semibold">格式</th>
-                <th className="px-4 py-3 font-semibold">状态</th>
-                <th className="px-4 py-3 font-semibold">审计摘要</th>
-                <th className="px-4 py-3 font-semibold">异常信号</th>
-                <th className="px-4 py-3 font-semibold">AI成本</th>
-                <th className="px-4 py-3 font-semibold">创建时间</th>
-                <th className="px-4 py-3 font-semibold">操作</th>
+          <table className="w-full min-w-[1420px] text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr className="text-[13px] border-b border-slate-200">
+                <th className="px-4 py-3.5 font-semibold w-[360px]">任务</th>
+                <th className="px-4 py-3.5 font-semibold w-36">用户</th>
+                <th className="px-4 py-3.5 font-semibold w-20 text-center">格式</th>
+                <th className="px-4 py-3.5 font-semibold text-center w-28">状态</th>
+                <th className="px-4 py-3.5 font-semibold text-center w-32">审计摘要</th>
+                <th className="px-4 py-3.5 font-semibold text-center w-48">异常信号</th>
+                <th className="px-4 py-3.5 font-semibold text-right w-44">真实成本</th>
+                <th className="px-4 py-3.5 font-semibold text-right w-44">算力扣点</th>
+                <th className="px-4 py-3.5 font-semibold text-center w-36">创建时间</th>
+                <th className="px-4 py-3.5 font-semibold text-center w-24">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -664,77 +717,151 @@ export default function AdminHighlightJobsPage() {
                 const anomalySignals = buildJobAnomalySignals(item, aiCostHighThresholdCNY);
                 return (
                 <tr key={item.id} className="transition-colors hover:bg-slate-50/60">
-                  <td className="px-4 py-3 align-top">
-                    <div className="font-semibold text-slate-900">#{item.id} {item.title || "未命名任务"}</div>
-                    <div className="mt-1 max-w-[340px] truncate text-xs text-slate-400" title={item.source_video_key || ""}>
-                      {item.source_video_key || "-"}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">输入：{resolveSourceProbeSummary(item.options)}</div>
-                    <div className="mt-1 text-xs text-amber-700">
-                      可读性原因：{sourceReadReasonLabel(resolveSourceReadabilityReason(item))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-600">
-                    <div>#{item.user?.id || 0} {item.user?.display_name || "-"}</div>
-                    <div className="mt-1">{item.user?.phone || "-"}</div>
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-600">{resolveRequestedFormat(item)}</td>
-                  <td className="px-4 py-3 align-top">
-                    <div className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(item.status)}`}>
-                      {statusLabel(item.status)}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">{item.stage} · {item.progress || 0}%</div>
-                    <div className="mt-1 text-xs text-amber-700">
-                      成本：{formatCurrency(item.cost?.estimated_cost, item.cost?.currency || "CNY")}
+                  <td className="px-4 py-4 align-top">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="font-semibold text-slate-800 text-[13px] hover:text-emerald-600 transition-colors cursor-pointer whitespace-normal leading-relaxed" onClick={() => window.open(`/admin/users/highlight-jobs/${item.id}`, '_self')}>
+                        <span className="text-slate-400 font-normal mr-1">#{item.id}</span>
+                        {item.title || "未命名任务"}
+                      </div>
+                      <div className="max-w-[340px] truncate text-[11px] text-slate-400 font-mono bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded w-fit" title={item.source_video_key || ""}>
+                        {item.source_video_key || "-"}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1 flex items-start gap-1.5">
+                        <span className="text-slate-400 mt-[3px]">输入</span>
+                        <span className="bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-medium break-all whitespace-normal leading-relaxed">{resolveSourceProbeSummary(item.options)}</span>
+                      </div>
+                      {resolveSourceReadabilityReason(item) !== "-" && resolveSourceReadabilityReason(item) !== "ok" && (
+                        <div className="text-[11px] text-amber-600 flex items-center gap-1 mt-0.5">
+                          <span className="bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded font-medium">读失败</span>
+                          {sourceReadReasonLabel(resolveSourceReadabilityReason(item))}
+                        </div>
+                      )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-600">
-                    <div className="grid gap-1">
-                      <div>proposal：{Number(item.audit?.proposal_count || 0)}</div>
-                      <div>deliver：{Number(item.audit?.deliver_count || 0)}</div>
-                      <div>feedback：{Number(item.audit?.feedback_count || 0)}</div>
-                      <div>rerender：{Number(item.audit?.rerender_count || 0)}</div>
+                  <td className="px-4 py-4 align-top text-xs text-slate-600">
+                    <div className="flex flex-col gap-1.5 mt-2.5 ml-2">
+                      <div className="font-semibold text-slate-800 text-[13px]">
+                        <span className="text-slate-400 font-normal mr-1">#{item.user?.id || 0}</span>
+                        {item.user?.display_name || "-"}
+                      </div>
+                      <div className="text-slate-500 text-[11px] font-mono mt-0.5">{item.user?.phone || "-"}</div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-600">
-                    <div className="flex max-w-[240px] flex-wrap gap-1.5">
+                  <td className="px-4 py-4 align-top text-center text-xs text-slate-600">
+                    <div className="mt-3.5">
+                      <span className="uppercase font-medium tracking-wider bg-slate-100/80 border border-slate-200 text-slate-600 px-2 py-1 rounded text-[11px] shadow-sm">{resolveRequestedFormat(item)}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top text-center">
+                    <div className="flex flex-col items-center gap-1.5 mt-2 w-[110px] mx-auto">
+                      <div className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusBadgeClass(item.status)}`}>
+                        {statusLabel(item.status)}
+                      </div>
+                      <div className="text-[11px] font-medium text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded whitespace-nowrap shadow-sm">{item.stage} · {item.progress || 0}%</div>
+                      <div className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded whitespace-nowrap shadow-sm">
+                        成本：{formatCurrency(item.cost?.estimated_cost, item.cost?.currency || "CNY")}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top text-[11px] text-slate-600">
+                    <div className="grid gap-1.5 mx-auto w-[130px] text-left mt-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-slate-400">proposal</span>
+                        <span className="font-semibold text-slate-700 bg-slate-50/50 border border-slate-100/60 px-2 py-0.5 rounded shadow-sm text-xs">{Number(item.audit?.proposal_count || 0)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-slate-400">deliver</span>
+                        <span className="font-semibold text-slate-700 bg-slate-50/50 border border-slate-100/60 px-2 py-0.5 rounded shadow-sm text-xs">{Number(item.audit?.deliver_count || 0)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-slate-400">feedback</span>
+                        <span className="font-semibold text-slate-700 bg-slate-50/50 border border-slate-100/60 px-2 py-0.5 rounded shadow-sm text-xs">{Number(item.audit?.feedback_count || 0)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-slate-400">rerender</span>
+                        <span className="font-semibold text-slate-700 bg-slate-50/50 border border-slate-100/60 px-2 py-0.5 rounded shadow-sm text-xs">{Number(item.audit?.rerender_count || 0)}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top text-xs text-slate-600">
+                    <div className="flex max-w-[180px] flex-wrap gap-2 justify-center mx-auto mt-4">
                       {anomalySignals.length ? anomalySignals.map((signal) => (
                         <span
                           key={`${item.id}-${signal.key}`}
                           title={signal.title || signal.label}
-                          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${signal.className}`}
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-sm ${signal.className}`}
                         >
                           {signal.label}
                         </span>
                       )) : (
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 shadow-sm">
                           暂无异常
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-600">
-                    <div>AI CNY：{formatCurrency(item.cost?.ai_cost_cny, "CNY")}</div>
-                    <div className="mt-1">AI USD：{formatCurrency(item.cost?.ai_cost_usd, "USD")}</div>
-                    <div className="mt-1 text-slate-500">calls：{Number(item.cost?.ai_calls || 0)}</div>
-                    <div className="mt-1 text-slate-500">
-                      duration：{typeof item.cost?.ai_duration_ms === "number" && item.cost.ai_duration_ms > 0 ? `${(item.cost.ai_duration_ms / 1000).toFixed(1)}s` : "-"}
+                  <td className="px-4 py-4 align-top text-[11px] text-slate-600">
+                    <div className="flex flex-col items-end gap-1.5 mt-1 w-[150px] ml-auto">
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-slate-400">API CNY</span>
+                        <span className="font-semibold text-slate-700 bg-slate-50/50 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-xs">{formatCurrency(item.cost?.ai_cost_cny, "CNY")}</span>
+                      </div>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-slate-400">API USD</span>
+                        <span className="text-slate-600 font-medium bg-slate-50/50 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-xs">{formatCurrency(item.cost?.ai_cost_usd, "USD")}</span>
+                      </div>
+                      <div className="flex items-center justify-between w-full mt-1.5">
+                        <span className="text-slate-400">估算</span>
+                        <span className="text-slate-600 font-medium bg-slate-50/50 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-xs">
+                          {formatCurrency(item.cost?.estimated_cost, item.cost?.currency || "CNY")}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-slate-400">calls</span>
+                        <span className="text-slate-600 font-medium bg-slate-50/50 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-xs">{Number(item.cost?.ai_calls || 0)}</span>
+                      </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-500">{formatTime(item.created_at)}</td>
-                  <td className="px-4 py-3 align-top">
-                    <Link
-                      className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                      href={`/admin/users/highlight-jobs/${item.id}`}
-                    >
-                      进入详情页
-                    </Link>
+                  <td className="px-4 py-4 align-top text-[11px] text-slate-600">
+                    <div className="flex flex-col items-end gap-1.5 mt-1 w-[150px] ml-auto">
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-slate-400">结算</span>
+                        <span className="font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100 shadow-sm text-xs">
+                          {formatPoints(item.point_hold?.settled_points)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-slate-400">预冻结</span>
+                        <span className="text-slate-600 font-medium bg-slate-50/50 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-xs">
+                          {formatPoints(item.point_hold?.reserved_points)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-slate-400">状态</span>
+                        <span className="text-slate-600 font-medium bg-slate-50/50 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-xs">
+                          {pointHoldStatusLabel(item.point_hold?.status)}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top text-[11px] text-slate-500 text-center whitespace-nowrap pt-4">
+                    <div className="mt-[22px] flex flex-col gap-1.5 items-center w-full">
+                      <span className="bg-slate-50/80 px-2.5 py-1 rounded-md border border-slate-100/60 shadow-sm text-slate-600 font-medium">{formatTime(item.created_at)?.split(" ")[0]}</span>
+                      <span className="text-slate-500 font-mono text-[11px]">{formatTime(item.created_at)?.split(" ")[1]}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top text-center pt-4">
+                    <div className="mt-[22px]">
+                      <Link className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:scale-95" href={`/admin/users/highlight-jobs/${item.id}`}>
+                        详情
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               )})}
               {!items.length ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-400" colSpan={9}>
+                  <td className="px-4 py-8 text-center text-slate-400" colSpan={10}>
                     暂无数据
                   </td>
                 </tr>
@@ -744,20 +871,20 @@ export default function AdminHighlightJobsPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-medium text-slate-600 shadow-sm mt-5">
         <div>共 {total} 条，当前第 {page} / {totalPages} 页</div>
         <div className="flex items-center gap-2">
           <button
             disabled={page <= 1}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             上一页
           </button>
           <button
             disabled={page >= totalPages}
             onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             下一页
           </button>

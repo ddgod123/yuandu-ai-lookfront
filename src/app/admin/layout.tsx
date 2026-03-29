@@ -87,6 +87,7 @@ const NAV = [
     items: [
       { label: "用户列表", href: "/admin/users" },
       { label: "兑换码", href: "/admin/redeem-codes" },
+      { label: "算力兑换码", href: "/admin/compute-redeem-codes" },
       { label: "合集次卡", href: "/admin/collection-download-codes" },
       { label: "风控防刷", href: "/admin/users/security" },
       { label: "角色权限", href: "/admin/roles" },
@@ -102,6 +103,9 @@ const NAV = [
     ],
   },
 ];
+
+const LONG_GROUP_ITEM_THRESHOLD = 10;
+const LONG_GROUP_INITIAL_VISIBLE_COUNT = 8;
 
 function normalizePath(input: string) {
   const [path] = input.split("?");
@@ -139,10 +143,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [expandedLongGroups, setExpandedLongGroups] = useState<Record<string, boolean>>({});
+  const [menuSearch, setMenuSearch] = useState("");
   const profile = getAdminProfile();
 
-  const toggleGroup = (title: string) => {
-    setCollapsedGroups(prev => ({ ...prev, [title]: !prev[title] }));
+  const toggleGroup = (title: string, currentCollapsed: boolean) => {
+    setCollapsedGroups(prev => ({ ...prev, [title]: !currentCollapsed }));
   };
 
   const isSuperAdmin = profile.role === "super_admin";
@@ -150,6 +156,24 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     () => NAV.filter((group) => group.title !== "表情包版权" || isSuperAdmin),
     [isSuperAdmin]
   );
+  const menuSearchText = menuSearch.trim().toLowerCase();
+  const filteredNav = useMemo(() => {
+    if (!menuSearchText) {
+      return nav;
+    }
+    return nav
+      .map((group) => {
+        const groupMatched = group.title.toLowerCase().includes(menuSearchText);
+        const items = groupMatched
+          ? group.items
+          : group.items.filter(
+              (item) =>
+                item.label.toLowerCase().includes(menuSearchText) || item.href.toLowerCase().includes(menuSearchText)
+            );
+        return { ...group, items };
+      })
+      .filter((group) => group.items.length > 0);
+  }, [menuSearchText, nav]);
 
   const currentLabel = useMemo(() => {
     let bestLabel = "管理后台";
@@ -201,7 +225,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="admin-theme relative flex h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#dcfce7_0%,#f8fafc_26%,#f1f5f9_100%)] text-slate-900">
       {/* Sidebar */}
-      <aside className="hidden w-80 flex-col border-r border-slate-200/70 bg-white/90 shadow-[0_20px_40px_-30px_rgba(2,6,23,0.35)] backdrop-blur-xl lg:flex">
+      <aside className="hidden w-80 flex-col border-r border-slate-200/70 bg-white shadow-[0_20px_40px_-30px_rgba(2,6,23,0.35)] lg:flex">
         <div className="flex shrink-0 flex-col gap-8 px-6 py-8">
           <div>
             <div className="flex items-center gap-3">
@@ -220,15 +244,23 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="scrollbar-hide flex-1 space-y-5 overflow-y-auto px-6 py-2">
-          {nav.map((group) => {
-            const isCollapsed = collapsedGroups[group.title];
+        <nav className="flex-1 space-y-4 overflow-y-auto px-6 py-2">
+          {filteredNav.map((group) => {
             const groupActiveHref = resolveBestActiveItem(pathname, group.items);
             const groupActive = groupActiveHref !== "";
+            const defaultCollapsed = group.items.length > LONG_GROUP_ITEM_THRESHOLD && !groupActive;
+            const collapsedOverride = collapsedGroups[group.title];
+            const isCollapsed = menuSearchText ? false : typeof collapsedOverride === "boolean" ? collapsedOverride : defaultCollapsed;
+            const canFoldLongItems = !menuSearchText && group.items.length > LONG_GROUP_INITIAL_VISIBLE_COUNT;
+            const isLongExpanded = expandedLongGroups[group.title] || false;
+            const visibleItems =
+              canFoldLongItems && !isLongExpanded
+                ? group.items.slice(0, LONG_GROUP_INITIAL_VISIBLE_COUNT)
+                : group.items;
             return (
               <div key={group.title}>
                 <button 
-                  onClick={() => toggleGroup(group.title)}
+                  onClick={() => toggleGroup(group.title, isCollapsed)}
                   className={`group mb-2 flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors ${
                     groupActive
                       ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
@@ -244,14 +276,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   </svg>
                 </button>
                 
-                <div className={`space-y-1 transition-all duration-300 overflow-hidden ${isCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
-                  {group.items.map((item) => {
+                <div className={isCollapsed ? "hidden" : "space-y-1"}>
+                  {visibleItems.map((item) => {
                     const active = normalizePath(item.href) === normalizePath(groupActiveHref);
                     return (
                       <button
                         key={item.href}
                         onClick={() => router.push(item.href)}
-                        className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-200 ${
+                        className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ${
                           active
                             ? "bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-100"
                             : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -268,15 +300,36 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                           <span>{item.label}</span>
                         </div>
                         {active && (
-                          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                         )}
                       </button>
                     );
                   })}
+                  {canFoldLongItems ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedLongGroups((prev) => ({
+                          ...prev,
+                          [group.title]: !prev[group.title],
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      {isLongExpanded
+                        ? "收起分组"
+                        : `展开更多（+${group.items.length - LONG_GROUP_INITIAL_VISIBLE_COUNT}）`}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );
           })}
+          {!filteredNav.length ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
+              没有匹配的菜单，请更换关键词。
+            </div>
+          ) : null}
         </nav>
 
         <div className="shrink-0 border-t border-slate-100 p-6">
@@ -308,7 +361,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="sticky top-0 z-10 shrink-0 border-b border-slate-200/70 bg-white/80 px-8 py-4 backdrop-blur-xl">
+        <header className="sticky top-0 z-10 shrink-0 border-b border-slate-200/70 bg-white px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
@@ -327,8 +380,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </span>
                 <input
+                  value={menuSearch}
+                  onChange={(event) => setMenuSearch(event.target.value)}
                   className="w-64 rounded-xl border border-slate-200/80 bg-white py-2 pl-10 pr-4 text-sm font-medium outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 placeholder:text-slate-400"
-                  placeholder="在档案库中检索..."
+                  placeholder="筛选菜单（名称/路径）"
                 />
               </div>
               

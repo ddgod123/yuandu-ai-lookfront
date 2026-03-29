@@ -175,23 +175,32 @@ export default function UsersPage() {
         }
       />
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-        当前登录：{profile.name || "超级管理员"}（{profile.role || "super_admin"}）
+      <div className="rounded-[20px] border border-slate-200 bg-slate-50/50 p-4 text-[13px] text-slate-600 mb-6 flex items-center justify-between shadow-sm">
+        <div>
+          <span className="font-semibold text-slate-800">当前登录：</span> 
+          {profile.name || "超级管理员"} 
+          <span className="ml-2 inline-flex rounded-md bg-emerald-100/50 border border-emerald-200 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+            {profile.role || "super_admin"}
+          </span>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <input
-          className="w-72 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-          placeholder="搜索（邮箱/手机号/昵称）"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="flex flex-wrap gap-4 items-center mb-6">
+        <div className="relative">
+          <input
+            className="w-80 rounded-xl border border-slate-200 bg-white pl-4 pr-10 py-2.5 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 shadow-sm transition-all"
+            placeholder="搜索（邮箱/手机号/昵称）"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && load()}
+          />
+        </div>
         <button
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-600"
+          className="rounded-xl bg-slate-900 px-5 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-all hover:bg-emerald-600 hover:shadow-md hover:shadow-emerald-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={load}
           disabled={loading}
         >
-          {loading ? "加载中..." : "加载"}
+          {loading ? "检索中..." : "精准检索"}
         </button>
       </div>
 
@@ -201,93 +210,97 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-700">
+      <div className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm mb-6">
+        <table className="w-full text-left text-[13px]">
+          <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
             <tr>
-              <th className="px-4 py-3 font-semibold">ID</th>
-              <th className="px-4 py-3 font-semibold">手机号</th>
-              <th className="px-4 py-3 font-semibold">邮箱</th>
-              <th className="px-4 py-3 font-semibold">昵称</th>
-              <th className="px-4 py-3 font-semibold">角色</th>
-              <th className="px-4 py-3 font-semibold">状态</th>
-              <th className="px-4 py-3 font-semibold">用户等级</th>
-              <th className="px-4 py-3 font-semibold">订阅计划</th>
-              <th className="px-4 py-3 font-semibold">订阅到期</th>
-              <th className="px-4 py-3 font-semibold">创建时间</th>
-              <th className="px-4 py-3 font-semibold">操作</th>
+              <th className="px-4 py-3.5 font-semibold w-16 text-center">ID</th>
+              <th className="px-4 py-3.5 font-semibold w-32">手机号</th>
+              <th className="px-4 py-3.5 font-semibold w-48">邮箱</th>
+              <th className="px-4 py-3.5 font-semibold w-32">昵称</th>
+              <th className="px-4 py-3.5 font-semibold w-24 text-center">角色</th>
+              <th className="px-4 py-3.5 font-semibold w-24 text-center">状态</th>
+              <th className="px-4 py-3.5 font-semibold w-24 text-center">等级</th>
+              <th className="px-4 py-3.5 font-semibold w-24 text-center">计划</th>
+              <th className="px-4 py-3.5 font-semibold w-36 text-center">订阅到期</th>
+              <th className="px-4 py-3.5 font-semibold w-36 text-center">创建时间</th>
+              <th className="px-4 py-3.5 font-semibold w-48 text-center">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((user) => (
-              <tr key={user.id} className="text-slate-700 transition hover:bg-slate-50/70">
-                <td className="px-4 py-3 font-medium">{user.id}</td>
-                <td className="px-4 py-3">{user.phone || "-"}</td>
-                <td className="px-4 py-3">{user.email || "-"}</td>
-                <td className="px-4 py-3 font-medium">{user.display_name || "-"}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+              <tr key={user.id} className="text-slate-700 transition hover:bg-slate-50/70 border-b border-slate-50 last:border-0">
+                <td className="px-4 py-4 font-medium text-center text-slate-500 text-[13px]">{user.id}</td>
+                <td className="px-4 py-4 text-[13px] font-medium">{user.phone || "-"}</td>
+                <td className="px-4 py-4 text-[13px] text-slate-500">{user.email || "-"}</td>
+                <td className="px-4 py-4 font-semibold text-slate-800 text-[13px]">{user.display_name || "-"}</td>
+                <td className="px-4 py-4 text-center">
+                  <span className="inline-flex rounded-lg bg-indigo-50 border border-indigo-100/50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 shadow-sm">
                     {user.role}
                   </span>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-4 text-center">
                   <span
-                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    className={`inline-flex rounded-lg border px-2.5 py-1 text-[11px] font-semibold shadow-sm ${
                       user.status === "active"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-red-50 text-red-700"
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                        : "bg-red-50 border-red-200 text-red-700"
                     }`}
                   >
                     {user.status}
                   </span>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-4 text-center">
                   <span
-                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    className={`inline-flex rounded-lg border px-2.5 py-1 text-[11px] font-semibold shadow-sm ${
                       user.user_level === "subscriber"
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-slate-100 text-slate-700"
+                        ? "bg-amber-50 border-amber-200 text-amber-700"
+                        : "bg-slate-50 border-slate-200 text-slate-600"
                     }`}
                   >
                     {user.user_level || "free"}
                   </span>
                 </td>
-                <td className="px-4 py-3">{user.subscription_plan || "-"}</td>
-                <td className="px-4 py-3 whitespace-nowrap">{formatTime(user.subscription_expires_at)}</td>
-                <td className="px-4 py-3 whitespace-nowrap">{formatTime(user.created_at)}</td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-4 text-center text-[13px] text-slate-600 font-medium">{user.subscription_plan || "-"}</td>
+                <td className="px-4 py-4 text-center whitespace-nowrap text-[12px] text-slate-500 font-mono">
+                  {user.subscription_expires_at ? formatTime(user.subscription_expires_at).split(" ")[0] : "-"}
+                </td>
+                <td className="px-4 py-4 text-center whitespace-nowrap text-[12px] text-slate-500 font-mono">
+                  {formatTime(user.created_at).split(" ")[0]}
+                </td>
+                <td className="px-4 py-4 text-center">
                   {user.role === "super_admin" ? (
-                    <span className="text-xs font-semibold text-emerald-700">超级管理员</span>
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md">超级管理员</span>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
                       <button
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300"
                         onClick={() => loadUserDetail(user.id)}
                       >
-                        查看详情
+                        详情
                       </button>
                       <button
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300"
                         onClick={() => updateRole(user.id, "admin")}
                       >
-                        设为管理员
+                        设管理
                       </button>
                       <button
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300"
                         onClick={() => updateRole(user.id, "user")}
                       >
-                        设为普通
+                        设普通
                       </button>
                       {user.status === "active" ? (
                         <button
-                          className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                          className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 shadow-sm transition hover:bg-red-100 hover:border-red-300"
                           onClick={() => updateStatus(user.id, "disabled")}
                         >
                           禁用
                         </button>
                       ) : (
                         <button
-                          className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 hover:border-emerald-300"
                           onClick={() => updateStatus(user.id, "active")}
                         >
                           启用
@@ -309,7 +322,7 @@ export default function UsersPage() {
         </table>
       </div>
 
-      <div className="rounded-3xl border border-slate-100 bg-white p-6">
+      <div className="rounded-[20px] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-800">用户详情与兑换记录</h3>
           {detail ? (
