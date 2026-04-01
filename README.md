@@ -1,16 +1,38 @@
-# 元都AI Lookfront（运营中台）
+# Yuandu AI Lookfront
 
-元都AI（Yuandu AI）是一个工业级 AI 视觉资产生产平台。  
-本仓库为运营与管理中台，负责平台的「**内容治理 + 任务监控 + 质量控制**」，提供：
-
-- 视觉资产运营配置与审核工具
-- 任务队列、结果巡检、健康看板
-- 质量参数管理与后台治理入口
-- 订阅与权益相关运营能力
+[中文](#中文简介) | [English](#english)
 
 ---
 
-## 1. 技术栈
+## 中文简介
+
+元都AI（Yuandu AI）运营中台应用。  
+定位为「**内容治理 + 任务监控 + 质量控制**」的管理控制台。
+
+### 核心能力
+
+- 视觉资产运营配置与审核
+- 任务队列、结果巡检、健康看板
+- 质量参数管理与生产链路治理
+- 订阅与权益相关运营入口
+
+---
+
+## English
+
+Operations console for Yuandu AI.  
+Built for **content governance, task observability, and quality control** across the production lifecycle.
+
+### Core Capabilities
+
+- Asset operations configuration and moderation
+- Task queues, result inspection, and health dashboards
+- Quality parameter management and production governance
+- Operational flows for subscription and entitlement management
+
+---
+
+## Tech Stack
 
 - Next.js 16
 - React 19
@@ -19,7 +41,7 @@
 
 ---
 
-## 2. 本地开发
+## Quick Start
 
 ```bash
 npm install
@@ -27,13 +49,11 @@ cp .env.example .env.local
 npm run dev
 ```
 
-默认访问：`http://localhost:5818`
+Default: `http://localhost:5818`
 
 ---
 
-## 3. 环境变量
-
-`.env.local` 示例：
+## Environment
 
 ```bash
 NEXT_PUBLIC_API_BASE=/api
@@ -41,7 +61,7 @@ NEXT_PUBLIC_API_BASE=/api
 
 ---
 
-## 4. 构建与启动
+## Build & Run
 
 ```bash
 npm run build
@@ -50,19 +70,12 @@ npm run start
 
 ---
 
-## 5. 部署说明
+## Deployment
 
-见：[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
-
----
-
-## 6. 开源注意事项
-
-- 不提交 `.env.local`、私钥、证书、管理员测试数据
-- 不提交模型权重、私有提示词、训练数据（已加入 ignore 规则）
+See: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 
 ---
 
-## 7. License
+## License
 
-见仓库 `LICENSE`。
+See `LICENSE`.
