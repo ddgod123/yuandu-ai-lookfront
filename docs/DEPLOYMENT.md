@@ -1,4 +1,4 @@
-# Lookfront 部署说明（生产）
+# 元都AI Lookfront 部署说明（生产）
 
 ## 1. 依赖
 
@@ -37,7 +37,7 @@ EOF
 
 ```ini
 [Unit]
-Description=Emoji Lookfront (Admin)
+Description=Yuandu AI Lookfront (Admin)
 After=network.target
 
 [Service]
