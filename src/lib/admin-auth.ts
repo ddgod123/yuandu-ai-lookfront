@@ -1,7 +1,13 @@
 "use client";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5050";
+const resolveAPIBase = () => {
+  const raw = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
+  if (!raw) return "";
+  if (/^\/api\/?$/i.test(raw)) return "";
+  return raw.replace(/\/+$/, "");
+};
+
+const API_BASE = resolveAPIBase();
 
 const ACCESS_KEY = "admin_token";
 const REFRESH_KEY = "admin_refresh";
