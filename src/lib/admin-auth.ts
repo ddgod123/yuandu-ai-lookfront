@@ -2,8 +2,12 @@
 
 const resolveAPIBase = () => {
   const raw = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
-  if (!raw) return "";
-  if (/^\/api\/?$/i.test(raw)) return "";
+  if (!raw || /^\/api\/?$/i.test(raw)) {
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return window.location.origin;
+    }
+    return "";
+  }
   return raw.replace(/\/+$/, "");
 };
 
