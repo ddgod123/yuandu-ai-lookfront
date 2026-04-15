@@ -109,19 +109,39 @@ export async function refreshAccessToken() {
     return false;
   }
 
-  const res = await fetch(`${API_BASE}/api/auth/refresh`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch {
+    // 网络异常（后端不可达/CORS/离线）时，不抛错导致页面崩溃
+    return false;
+  }
 
   if (!res.ok) {
     clearTokens();
     return false;
   }
 
-  const data = await res.json();
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+  try {
+    data = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+  } catch {
+    clearTokens();
+    return false;
+  }
   if (!data?.access_token || !data?.refresh_token) {
     clearTokens();
     return false;
@@ -139,12 +159,16 @@ export async function refreshAccessToken() {
 
 export async function logout() {
   const refreshToken = getRefreshToken();
-  await fetch(`${API_BASE}/api/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
-  });
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+    });
+  } catch {
+    // ignore network error on logout
+  }
   clearTokens();
 }
 

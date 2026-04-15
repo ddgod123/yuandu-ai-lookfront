@@ -26,21 +26,29 @@ const NAV = [
     title: "用户创作",
     items: [
       { label: "创作任务总览", href: "/admin/users/video-jobs" },
+      { label: "多入口接入追踪", href: "/admin/users/ingress-jobs" },
       { label: "反馈链路完整性", href: "/admin/users/feedback-integrity?format=all" },
       { label: "样本基线对比", href: "/admin/users/gif-baselines" },
       { label: "SQL巡检(GIF)", href: "/admin/users/gif-sql-health" },
       { label: "任务巡检", href: "/admin/users/video-job-health" },
       { label: "视频任务总览", href: "/admin/users/highlight-jobs" },
-      { label: "视频任务GIF列表", href: "/admin/users/highlight-jobs/gif" },
-      { label: "视频任务PNG列表", href: "/admin/users/highlight-jobs/png" },
-      { label: "视频任务JPG列表", href: "/admin/users/highlight-jobs/jpg" },
-      { label: "视频任务WebP列表", href: "/admin/users/highlight-jobs/webp" },
-      { label: "视频任务Live列表", href: "/admin/users/highlight-jobs/live" },
-      { label: "视频任务MP4列表", href: "/admin/users/highlight-jobs/mp4" },
-      { label: "视频转图GIF质量", href: "/admin/settings/video-quality/gif" },
-      { label: "视频转图PNG质量", href: "/admin/settings/video-quality/png" },
+      { label: "固定模板列表", href: "/admin/settings/video-quality/fixed-templates" },
       { label: "全局阈值设置", href: "/admin/users/global-thresholds" },
       { label: "算力账户", href: "/admin/users/compute-accounts" },
+    ],
+  },
+  {
+    title: "格式GIF任务",
+    items: [
+      { label: "视频任务GIF列表", href: "/admin/users/highlight-jobs/gif" },
+      { label: "视频转图GIF质量", href: "/admin/settings/video-quality/gif" },
+    ],
+  },
+  {
+    title: "格式PNG任务",
+    items: [
+      { label: "视频任务PNG列表", href: "/admin/users/highlight-jobs/png" },
+      { label: "视频转图PNG质量", href: "/admin/settings/video-quality/png" },
     ],
   },
   {
@@ -56,6 +64,7 @@ const NAV = [
     title: "审核与版权",
     items: [
       { label: "待审核", href: "/admin/audit/pending" },
+      { label: "UGC投稿审核", href: "/admin/audit/ugc-reviews" },
       { label: "加入申请", href: "/admin/audit/join-applications" },
       { label: "举报处理", href: "/admin/audit/reports" },
       { label: "版权库", href: "/admin/audit/rights" },
@@ -96,6 +105,9 @@ const NAV = [
   {
     title: "系统",
     items: [
+      { label: "系统诊断", href: "/admin/system/doctor" },
+      { label: "本地GIF转WebP", href: "/admin/system/local-gif-webp" },
+      { label: "API文档（Swagger）", href: "/admin/system/api-docs" },
       { label: "基础设置", href: "/admin/settings/general" },
       { label: "存储与 CDN", href: "/admin/settings/storage" },
       { label: "数据审计健康", href: "/admin/settings/data-audit" },
@@ -191,20 +203,30 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [pathname, nav]);
 
   useEffect(() => {
+    let active = true;
     const guard = async () => {
-      if (pathname.startsWith("/admin/login")) {
-        setReady(true);
-        return;
-      }
-      const ok = await ensureValidSession();
-      if (!ok) {
+      try {
+        if (pathname.startsWith("/admin/login")) {
+          if (active) setReady(true);
+          return;
+        }
+        const ok = await ensureValidSession();
+        if (!ok) {
+          clearTokens();
+          router.replace("/admin/login");
+          return;
+        }
+        if (active) setReady(true);
+      } catch {
         clearTokens();
         router.replace("/admin/login");
-        return;
+        if (active) setReady(false);
       }
-      setReady(true);
     };
-    guard();
+    void guard();
+    return () => {
+      active = false;
+    };
   }, [pathname, router]);
 
   if (!ready) {

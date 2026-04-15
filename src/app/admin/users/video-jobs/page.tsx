@@ -2237,6 +2237,7 @@ export default function AdminUserVideoJobsPage() {
   const [splitBackfillBatchSize, setSplitBackfillBatchSize] = useState("500");
   const [splitBackfillFormat, setSplitBackfillFormat] = useState("all");
   const [splitBackfillTables, setSplitBackfillTables] = useState("jobs,outputs,packages,events,feedbacks");
+  const splitBackfillFeatureEnabled = false;
 
   const effectiveFormatFilter = lockedFormatFilter || formatFilter;
 
@@ -3036,12 +3037,15 @@ export default function AdminUserVideoJobsPage() {
   }, [loadSampleBaselineDiff]);
 
   useEffect(() => {
+    if (!splitBackfillFeatureEnabled) {
+      return;
+    }
     void loadSplitBackfillStatus();
     const timer = window.setInterval(() => {
       void loadSplitBackfillStatus(true);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [loadSplitBackfillStatus]);
+  }, [loadSplitBackfillStatus, splitBackfillFeatureEnabled]);
 
   useEffect(() => {
     toastNoticesRef.current = toastNotices;
@@ -5744,7 +5748,8 @@ export default function AdminUserVideoJobsPage() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-cyan-100 bg-cyan-50/30 p-4 shadow-sm">
+      {splitBackfillFeatureEnabled ? (
+        <div className="rounded-3xl border border-cyan-100 bg-cyan-50/30 p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="text-sm font-bold text-cyan-700">分表回填任务（历史 base → format split）</div>
@@ -5973,7 +5978,8 @@ export default function AdminUserVideoJobsPage() {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
+      ) : null}
 
       {toastNotices.length ? (
         <div className="fixed right-5 top-5 z-50 space-y-2">

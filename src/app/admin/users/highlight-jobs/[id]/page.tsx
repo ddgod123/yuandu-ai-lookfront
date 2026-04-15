@@ -1683,8 +1683,8 @@ export default function AdminHighlightJobDetailPage() {
                     hint：{String(sourceReadability.hint || "-")}
                   </div>
                   {sourceReadAttempts.length > 0 ? (
-                    <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-cyan-100">
-                      <table className="w-full text-left text-[11px]">
+                    <div className="mt-2 rounded-lg border border-cyan-100">
+                      <table className="w-full table-fixed text-left text-[11px]">
                         <thead className="bg-cyan-50 text-cyan-700">
                           <tr>
                             <th className="px-2 py-1.5">step</th>
@@ -1707,7 +1707,7 @@ export default function AdminHighlightJobDetailPage() {
                                 <td className="px-2 py-1.5">
                                   {success ? "ok" : `failed${row.http_status ? ` (${String(row.http_status)})` : ""}`}
                                 </td>
-                                <td className="max-w-[360px] truncate px-2 py-1.5" title={String(row.error || "")}>
+                                <td className="px-2 py-1.5" title={String(row.error || "")}>
                                   {String(row.error || "-")}
                                 </td>
                               </tr>
@@ -1718,8 +1718,8 @@ export default function AdminHighlightJobDetailPage() {
                     </div>
                   ) : null}
                 </div>
-                <div className="mb-3 max-h-72 overflow-auto rounded-xl border border-cyan-100 bg-white">
-                  <table className="w-full text-left text-xs">
+                <div className="mb-3 rounded-xl border border-cyan-100 bg-white">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-cyan-50 text-cyan-700">
                       <tr>
                         <th className="px-3 py-2">阶段</th>
@@ -1736,23 +1736,23 @@ export default function AdminHighlightJobDetailPage() {
                         <tr key={`stage-compare-${row.key}`} className="align-top">
                           <td className="px-3 py-2 font-semibold">{row.label}</td>
                           <td className="px-3 py-2">
-                            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
+                            <pre className="whitespace-pre-wrap break-all whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
                               {formatJSONPreview(row.input)}
                             </pre>
                             <details className="mt-1">
                               <summary className="cursor-pointer text-[10px] text-cyan-700">查看完整输入 JSON</summary>
-                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
+                              <pre className="mt-1 whitespace-pre-wrap break-all whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
                                 {safeJSONStringify(row.input)}
                               </pre>
                             </details>
                           </td>
                           <td className="px-3 py-2">
-                            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
+                            <pre className="whitespace-pre-wrap break-all whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
                               {formatJSONPreview(row.output)}
                             </pre>
                             <details className="mt-1">
                               <summary className="cursor-pointer text-[10px] text-cyan-700">查看完整输出 JSON</summary>
-                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
+                              <pre className="mt-1 whitespace-pre-wrap break-all whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[10px] text-slate-600">
                                 {safeJSONStringify(row.output)}
                               </pre>
                             </details>
@@ -1767,7 +1767,7 @@ export default function AdminHighlightJobDetailPage() {
                           <td className="px-3 py-2">
                             <div>{row.status || "-"}</div>
                             {row.error ? (
-                              <div className="mt-1 max-w-[220px] truncate text-[10px] text-rose-600" title={row.error}>
+                              <div className="mt-1 text-[10px] text-rose-600" title={row.error}>
                                 {row.error}
                               </div>
                             ) : null}
@@ -1777,8 +1777,8 @@ export default function AdminHighlightJobDetailPage() {
                     </tbody>
                   </table>
                 </div>
-                <div className="max-h-64 overflow-auto rounded-xl border border-cyan-100 bg-white">
-                  <table className="w-full text-left text-xs">
+                <div className="rounded-xl border border-cyan-100 bg-white">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-cyan-50 text-cyan-700">
                       <tr>
                         <th className="px-3 py-2">阶段</th>
@@ -1797,7 +1797,7 @@ export default function AdminHighlightJobDetailPage() {
                           <td className="px-3 py-2 whitespace-nowrap">{formatTime(item.started_at)}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{formatTime(item.finished_at)}</td>
                           <td className="px-3 py-2">{formatDurationMs(item.duration_ms)}</td>
-                          <td className="px-3 py-2 max-w-[320px] truncate" title={item.error || item.reason || ""}>
+                          <td className="px-3 py-2  " title={item.error || item.reason || ""}>
                             {item.error || item.reason || "-"}
                           </td>
                         </tr>
@@ -1805,8 +1805,8 @@ export default function AdminHighlightJobDetailPage() {
                     </tbody>
                   </table>
                 </div>
-                <div className="mt-3 max-h-52 overflow-auto rounded-xl border border-cyan-100 bg-white">
-                  <table className="w-full text-left text-xs">
+                <div className="mt-3 rounded-xl border border-cyan-100 bg-white">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-cyan-50 text-cyan-700">
                       <tr>
                         <th className="px-3 py-2">AI 阶段</th>
@@ -1841,143 +1841,6 @@ export default function AdminHighlightJobDetailPage() {
             )}
           </section>
 
-          <div className="sticky top-20 z-20">
-            <div className="rounded-2xl border border-slate-200/90 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
-              <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="hidden shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 md:block">
-                    快速跳转
-                  </div>
-                  <div className="min-w-0 flex-1 overflow-x-auto">
-                    <div className="flex min-w-max items-center gap-1.5 pr-2">
-                      <a
-                        href="#stage-overview"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.overview
-                            ? "border-cyan-300 bg-cyan-100 text-cyan-800"
-                            : "border-cyan-200 text-cyan-700 hover:bg-cyan-50"
-                        }`}
-                      >
-                        流程总览
-                      </a>
-                      <a
-                        href="#stage-anomalies"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.anomalies
-                            ? "border-rose-300 bg-rose-100 text-rose-800"
-                            : "border-rose-200 text-rose-700 hover:bg-rose-50"
-                        }`}
-                      >
-                        异常摘要
-                      </a>
-                      <a
-                        href="#stage-ai-compare"
-                        className="whitespace-nowrap rounded-lg border border-sky-200 px-2.5 py-1 text-[11px] font-medium text-sky-700 transition hover:bg-sky-50"
-                      >
-                        AI对照块
-                      </a>
-                      <a
-                        href="#stage-ai1"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.ai1
-                            ? "border-indigo-300 bg-indigo-100 text-indigo-800"
-                            : "border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                        }`}
-                      >
-                        AI1
-                      </a>
-                      <a
-                        href="#stage-proposal-chains"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.proposal_chains
-                            ? "border-violet-300 bg-violet-100 text-violet-800"
-                            : "border-violet-200 text-violet-700 hover:bg-violet-50"
-                        }`}
-                      >
-                        Proposal链
-                      </a>
-                      <a
-                        href="#stage-ai2"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.ai2
-                            ? "border-blue-300 bg-blue-100 text-blue-800"
-                            : "border-blue-200 text-blue-700 hover:bg-blue-50"
-                        }`}
-                      >
-                        AI2
-                      </a>
-                      <a
-                        href="#stage-scoring"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.scoring
-                            ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-                            : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                        }`}
-                      >
-                        系统评分
-                      </a>
-                      <a
-                        href="#stage-ai3"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.ai3
-                            ? "border-amber-300 bg-amber-100 text-amber-800"
-                            : "border-amber-200 text-amber-700 hover:bg-amber-50"
-                        }`}
-                      >
-                        AI3
-                      </a>
-                      <a
-                        href="#stage-output"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.output
-                            ? "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-800"
-                            : "border-fuchsia-200 text-fuchsia-700 hover:bg-fuchsia-50"
-                        }`}
-                      >
-                        GIF结果产出
-                      </a>
-                      <a
-                        href="#stage-appendix"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.appendix
-                            ? "border-slate-300 bg-slate-100 text-slate-800"
-                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        原始附录
-                      </a>
-                      <a
-                        href="#stage-events"
-                        className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition ${
-                          openSections.events
-                            ? "border-slate-300 bg-slate-100 text-slate-800"
-                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        事件日志
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-                    onClick={expandAllSections}
-                  >
-                    展开全部
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-                    onClick={collapseAllSections}
-                  >
-                    收起全部
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <section id="stage-anomalies" className="rounded-2xl border border-rose-100 bg-rose-50/30 p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -2003,7 +1866,7 @@ export default function AdminHighlightJobDetailPage() {
               ))}
             </div>
             <div className="rounded-xl border border-rose-100 bg-white">
-              <table className="w-full text-left text-xs">
+              <table className="w-full table-fixed text-left text-xs">
                 <thead className="bg-rose-50 text-rose-700">
                   <tr>
                     <th className="px-3 py-2">异常项</th>
@@ -2030,283 +1893,223 @@ export default function AdminHighlightJobDetailPage() {
             </div>
           </section>
 
-          <section id="stage-ai-compare" className="rounded-2xl border border-sky-100 bg-sky-50/40 p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-sky-800">AI1 / AI2 / AI3 输入输出对照块</div>
-                <div className="text-[11px] text-slate-500">用于直接复制阶段输入输出，给运营排查、回放和比对模板变化。</div>
-              </div>
-            </div>
-            <div className="grid gap-3 xl:grid-cols-3">
-              {aiCompareRows.map((row) => (
-                <article key={`ai-compare-card-${row.key}`} className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm shadow-sky-100/40">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-800">{row.label}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        耗时 {formatDurationMs(row.duration_ms)} · tokens{" "}
-                        {typeof row.input_tokens === "number" || typeof row.output_tokens === "number"
-                          ? `${Number(row.input_tokens || 0)} / ${Number(row.output_tokens || 0)}`
-                          : "-"}{" "}
-                        · 成本 {formatCurrency(row.cost_usd, "USD")}
-                      </div>
-                    </div>
-                    <div className={`rounded-full border px-2 py-0.5 text-[11px] ${row.error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
-                      {row.status || "-"}
-                    </div>
-                  </div>
-                  {row.error ? (
-                    <div className="mb-2 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">
-                      {row.error}
-                    </div>
-                  ) : null}
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-2">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="text-[11px] font-semibold text-sky-700">输入 JSON</div>
-                        <button
-                          type="button"
-                          className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[10px] font-medium text-sky-700 hover:bg-sky-50"
-                          onClick={() => void handleCopyJSON(`${row.key}-input`, row.input)}
-                        >
-                          {copiedKey === `${row.key}-input` ? "已复制" : "复制输入"}
-                        </button>
-                      </div>
-                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-2 text-[11px] text-slate-600">
-                        {safeJSONStringify(row.input)}
-                      </pre>
-                    </div>
-                    <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-2">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="text-[11px] font-semibold text-sky-700">输出 JSON</div>
-                        <button
-                          type="button"
-                          className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[10px] font-medium text-sky-700 hover:bg-sky-50"
-                          onClick={() => void handleCopyJSON(`${row.key}-output`, row.output)}
-                        >
-                          {copiedKey === `${row.key}-output` ? "已复制" : "复制输出"}
-                        </button>
-                      </div>
-                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-2 text-[11px] text-slate-600">
-                        {safeJSONStringify(row.output)}
-                      </pre>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
 
           <section id="stage-ai1" className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-indigo-800">AI1（Prompt Director）</div>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-lg font-black tracking-tight text-indigo-900">AI1（Prompt Director）</h3>
+                <p className="mt-1 text-xs text-indigo-600/80">负责理解用户意图与视频语义，生成结构化策略。</p>
+              </div>
               <button
                 type="button"
-                className="rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50"
+                className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-bold text-indigo-700 shadow-sm transition-all hover:bg-indigo-50 active:scale-95"
                 onClick={() => toggleSection("ai1")}
               >
-                {openSections.ai1 ? "收起" : "展开"}
+                {openSections.ai1 ? "收起面板" : "展开面板"}
               </button>
             </div>
+
             {openSections.ai1 ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                <div className="space-y-2">
-                  <div className="grid gap-2 text-xs text-slate-700 md:grid-cols-4">
-                    <div className="rounded-xl border border-indigo-100 bg-white px-2 py-1.5">调用：{ai1Usage.calls}（成功 {ai1Usage.success}）</div>
-                    <div className="rounded-xl border border-indigo-100 bg-white px-2 py-1.5">tokens：{ai1Usage.inputTokens} / {ai1Usage.outputTokens}</div>
-                    <div className="rounded-xl border border-indigo-100 bg-white px-2 py-1.5">耗时：{formatDurationMs(ai1Usage.durationMs)} · 成本 {formatCurrency(ai1Usage.costUSD, "USD")}</div>
-                    <div className="rounded-xl border border-indigo-100 bg-white px-2 py-1.5">
-                      输入模式：{ai1InputModeRequested} → {ai1InputModeApplied}
-                      <div className="text-[10px] text-slate-500">
-                        来源 {ai1InputSource} · video_url {ai1SourceVideoURLAvailable ? "可用" : "不可用"} · 帧 {ai1FrameCount}
-                      </div>
-                    </div>
+              <div className="space-y-6">
+                {/* 1. 核心指标栏 (KPI Bar) */}
+                <div className="grid gap-3 text-sm md:grid-cols-4">
+                  <div className="flex flex-col justify-center rounded-xl border border-indigo-100 bg-white p-3 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">调用状态</span>
+                    <span className="mt-1 text-base font-black text-indigo-900">
+                      {ai1Usage.calls} 次 <span className="text-xs font-semibold text-emerald-500">({ai1Usage.success} 成功)</span>
+                    </span>
                   </div>
-                  <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">AI1 模型输入字段总览（带中文注释）</div>
-                      <div className="text-[10px] text-slate-500">来源：director_model_payload_v2（回退 director_input_payload_v1）</div>
+                  <div className="flex flex-col justify-center rounded-xl border border-indigo-100 bg-white p-3 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Tokens 消耗</span>
+                    <span className="mt-1 text-base font-black text-indigo-900">
+                      {ai1Usage.inputTokens} <span className="text-xs font-semibold text-indigo-400">In</span> / {ai1Usage.outputTokens} <span className="text-xs font-semibold text-indigo-400">Out</span>
+                    </span>
+                  </div>
+                  <div className="flex flex-col justify-center rounded-xl border border-indigo-100 bg-white p-3 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">耗时与成本</span>
+                    <span className="mt-1 text-base font-black text-indigo-900">
+                      {formatDurationMs(ai1Usage.durationMs)} <span className="text-xs font-semibold text-slate-400">({formatCurrency(ai1Usage.costUSD, "USD")})</span>
+                    </span>
+                  </div>
+                  <div className="flex flex-col justify-center rounded-xl border border-indigo-100 bg-white p-3 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">输入模式</span>
+                    <span className="mt-1 text-sm font-bold text-indigo-900">
+                      {ai1InputModeRequested} <span className="text-indigo-300">→</span> {ai1InputModeApplied}
+                    </span>
+                    <span className="mt-0.5 text-[10px] font-medium text-slate-500">
+                      来源: {ai1InputSource} | 帧数: {ai1FrameCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. 输入与输出分块展示 */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                  
+                  {/* 左侧：输入区块 */}
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2 border-b border-indigo-200/50 pb-2">
+                      <div className="h-2 w-2 rounded-full bg-indigo-500"></div>
+                      <h4 className="text-sm font-bold text-indigo-900">模型输入 (Input)</h4>
                     </div>
-                    <div className="max-h-72 overflow-auto rounded-lg border border-indigo-100">
-                      <table className="w-full text-left text-[11px]">
-                        <thead className="bg-indigo-50 text-indigo-700">
+
+                    <div className="rounded-xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+                      <div className="bg-indigo-50/50 px-3 py-2 border-b border-indigo-100 flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-800">字段总览</span>
+                        <span className="text-[10px] text-indigo-500">director_model_payload_v2</span>
+                      </div>
+                      <table className="w-full table-fixed text-left text-[11px]">
+                        <thead className="bg-slate-50 text-slate-500">
                           <tr>
-                            <th className="px-2 py-1.5">字段路径</th>
-                            <th className="px-2 py-1.5">字段名称</th>
-                            <th className="px-2 py-1.5">当前值</th>
-                            <th className="px-2 py-1.5">中文注释</th>
+                            <th className="px-3 py-2 w-1/4">字段</th>
+                            <th className="px-3 py-2 w-1/4">名称</th>
+                            <th className="px-3 py-2 w-1/2">当前值</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-indigo-50 text-slate-700">
+                        <tbody className="divide-y divide-slate-100 text-slate-700">
                           {ai1InputFieldRows.map((item) => (
-                            <tr key={`ai1-input-field-${item.path}`} className="align-top">
-                              <td className="px-2 py-1.5 font-mono text-[10px] text-slate-600">{item.path}</td>
-                              <td className="px-2 py-1.5">{item.label}</td>
-                              <td className="px-2 py-1.5">
-                                <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-50 px-1.5 py-1 text-[10px] text-slate-600">
+                            <tr key={`ai1-input-field-${item.path}`} className="align-top hover:bg-slate-50/50">
+                              <td className="px-3 py-2 font-mono text-[10px] text-slate-500">{item.path}</td>
+                              <td className="px-3 py-2 font-medium">{item.label}</td>
+                              <td className="px-3 py-2">
+                                <pre className="whitespace-pre-wrap break-all rounded bg-slate-100/50 px-2 py-1 text-[10px] text-slate-600">
                                   {safeJSONStringify(item.value ?? null)}
                                 </pre>
                               </td>
-                              <td className="px-2 py-1.5 text-[10px] text-slate-600">{item.note}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                    <details className="mt-2 rounded-lg border border-indigo-100 bg-slate-50/60 p-2">
-                      <summary className="cursor-pointer text-[11px] font-medium text-indigo-700">
-                        查看 AI1 模型输入原始 JSON（已脱敏）
+
+                    <details className="group rounded-xl border border-indigo-100 bg-white shadow-sm [&_summary::-webkit-details-marker]:hidden">
+                      <summary className="flex cursor-pointer items-center justify-between bg-indigo-50/30 px-4 py-3 text-xs font-bold text-indigo-800 transition-colors hover:bg-indigo-50/60">
+                        <span>查看原始 JSON (已脱敏)</span>
+                        <span className="transition duration-300 group-open:-rotate-180">▼</span>
                       </summary>
-                      <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[10px] text-slate-600">
-                        {safeJSONStringify(ai1InputForDisplayMasked)}
-                      </pre>
+                      <div className="border-t border-indigo-100 p-4">
+                        <pre className="whitespace-pre-wrap break-all text-[10px] text-slate-600">
+                          {safeJSONStringify(ai1InputForDisplayMasked)}
+                        </pre>
+                      </div>
                     </details>
-                    <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
-                      <div className="mb-1 text-[11px] font-semibold text-indigo-700">AI1 调试上下文（不发模型）</div>
-                      <div className="text-[10px] text-slate-600">来源：director_debug_context_v1（回退 director_input_payload_v1）</div>
-                      <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-indigo-100 bg-white">
-                        <table className="w-full text-left text-[11px]">
-                          <thead className="bg-indigo-50 text-indigo-700">
-                            <tr>
-                              <th className="px-2 py-1.5">字段路径</th>
-                              <th className="px-2 py-1.5">字段名称</th>
-                              <th className="px-2 py-1.5">当前值</th>
-                              <th className="px-2 py-1.5">中文注释</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-indigo-50 text-slate-700">
+
+                    {/* 调试上下文 */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 shadow-sm overflow-hidden">
+                       <div className="bg-slate-100/50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700">调试上下文 (不发模型)</span>
+                      </div>
+                      <div className="p-3">
+                        <table className="w-full table-fixed text-left text-[11px] mb-3">
+                          <tbody className="divide-y divide-slate-200/60 text-slate-600">
                             {ai1DebugFieldRows.map((item) => (
                               <tr key={`ai1-debug-field-${item.path}`} className="align-top">
-                                <td className="px-2 py-1.5 font-mono text-[10px] text-slate-600">{item.path}</td>
-                                <td className="px-2 py-1.5">{item.label}</td>
-                                <td className="px-2 py-1.5">
-                                  <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-50 px-1.5 py-1 text-[10px] text-slate-600">
+                                <td className="py-1.5 pr-2 font-medium w-1/3">{item.label}</td>
+                                <td className="py-1.5">
+                                  <span className="font-mono text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded">
                                     {safeJSONStringify(item.value ?? null)}
-                                  </pre>
+                                  </span>
                                 </td>
-                                <td className="px-2 py-1.5 text-[10px] text-slate-600">{item.note}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
+                        
+                        {ai1FrameManifestRows.length > 0 && (
+                          <details className="group mt-2 text-[10px]">
+                            <summary className="cursor-pointer font-medium text-slate-500 hover:text-slate-700">查看帧清单 (frame_manifest)</summary>
+                            <div className="mt-2 rounded border border-slate-200 bg-white overflow-hidden">
+                              <table className="w-full table-fixed text-left">
+                                <thead className="bg-slate-100 text-slate-500">
+                                  <tr>
+                                    <th className="px-2 py-1">序号</th>
+                                    <th className="px-2 py-1">时间戳 (秒)</th>
+                                    <th className="px-2 py-1">大小 (Bytes)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {ai1FrameManifestRows.map((row) => (
+                                    <tr key={`ai1-frame-${row.index}`}>
+                                      <td className="px-2 py-1">{row.index}</td>
+                                      <td className="px-2 py-1">{typeof row.timestamp_sec === "number" ? row.timestamp_sec.toFixed(3) : "-"}</td>
+                                      <td className="px-2 py-1">{typeof row.bytes === "number" ? Math.round(row.bytes) : "-"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </details>
+                        )}
                       </div>
-                      <div className="mt-2 text-[10px] text-slate-600">
-                        frame_manifest 子字段：index（序号）/ timestamp_sec（秒）/ bytes（帧字节大小，仅调试展示）。
+                    </div>
+                  </div>
+
+                  {/* 右侧：输出与 Prompt 区块 */}
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2 border-b border-emerald-200/50 pb-2">
+                      <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+                      <h4 className="text-sm font-bold text-emerald-900">模型输出与 Prompt (Output)</h4>
+                    </div>
+
+                    {/* 输出 JSON */}
+                    <div className="rounded-xl border border-emerald-100 bg-white shadow-sm overflow-hidden">
+                      <div className="bg-emerald-50/50 px-3 py-2 border-b border-emerald-100 flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-800">解析结果 (Directive)</span>
+                        <button
+                          type="button"
+                          className="rounded border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50"
+                          onClick={() => void handleCopyJSON("ai1-output", ai1OutputForDisplay)}
+                        >
+                          {copiedKey === "ai1-output" ? "已复制" : "复制 JSON"}
+                        </button>
                       </div>
-                      {ai1FrameManifestRows.length > 0 ? (
-                        <div className="mt-1 max-h-32 overflow-auto rounded border border-indigo-100 bg-white">
-                          <table className="w-full text-left text-[10px]">
-                            <thead className="bg-indigo-50 text-indigo-700">
-                              <tr>
-                                <th className="px-2 py-1">index</th>
-                                <th className="px-2 py-1">timestamp_sec</th>
-                                <th className="px-2 py-1">bytes</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-indigo-50">
-                              {ai1FrameManifestRows.map((row) => (
-                                <tr key={`ai1-frame-${row.index}`}>
-                                  <td className="px-2 py-1">{row.index}</td>
-                                  <td className="px-2 py-1">{typeof row.timestamp_sec === "number" ? row.timestamp_sec.toFixed(3) : "-"}</td>
-                                  <td className="px-2 py-1">{typeof row.bytes === "number" ? Math.round(row.bytes) : "-"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="mt-1 text-[10px] text-slate-500">本次未使用帧输入（frame_count=0）。</div>
-                      )}
-                      <details className="mt-2 rounded-lg border border-indigo-100 bg-slate-50/60 p-2">
-                        <summary className="cursor-pointer text-[11px] font-medium text-indigo-700">
-                          查看 AI1 调试上下文原始 JSON（已脱敏）
-                        </summary>
-                        <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[10px] text-slate-600">
-                          {safeJSONStringify(ai1DebugForDisplayMasked)}
+                      <div className="p-3">
+                        <pre className="whitespace-pre-wrap break-all text-[11px] leading-relaxed text-slate-700">
+                          {safeJSONStringify(ai1OutputForDisplay)}
                         </pre>
+                      </div>
+                    </div>
+
+                    {/* Prompt 组 */}
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <span className="text-[11px] font-bold text-slate-700">System Prompt (完整拼接)</span>
+                          <button
+                            type="button"
+                            className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
+                            onClick={() => void handleCopyJSON("ai1-system-prompt", ai1SystemPromptAssembled)}
+                          >
+                            {copiedKey === "ai1-system-prompt" ? "已复制" : "复制"}
+                          </button>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto p-3">
+                           <pre className="whitespace-pre-wrap break-all text-[10px] leading-5 text-slate-600">
+                            {ai1SystemPromptAssembled}
+                          </pre>
+                        </div>
+                      </div>
+
+                      <details className="group rounded-xl border border-slate-200 bg-white shadow-sm [&_summary::-webkit-details-marker]:hidden">
+                        <summary className="flex cursor-pointer items-center justify-between bg-slate-50/50 px-4 py-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-100/50">
+                          <span>查看 Prompt 拆解详情 (Fixed / Editable / Contract)</span>
+                          <span className="transition duration-300 group-open:-rotate-180">▼</span>
+                        </summary>
+                        <div className="border-t border-slate-100 p-4 space-y-4 bg-slate-50/30">
+                          <div>
+                            <div className="mb-1 text-[10px] font-bold text-slate-500">第一段：固定层 (Fixed) · v{ai1FixedTemplate?.version || "-"}</div>
+                            <pre className="whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2 text-[10px] text-slate-600">{ai1FixedPromptText}</pre>
+                          </div>
+                          <div>
+                            <div className="mb-1 text-[10px] font-bold text-slate-500">第二段：可编辑层 (Editable) · v{ai1EditableTemplate?.version || "-"}</div>
+                            <pre className="whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2 text-[10px] text-slate-600">{ai1EditablePromptText}</pre>
+                          </div>
+                          <div>
+                            <div className="mb-1 text-[10px] font-bold text-slate-500">第三段：输出契约 (Contract)</div>
+                            <pre className="whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2 text-[10px] text-slate-600">{AI1_OUTPUT_CONTRACT_TEXT}</pre>
+                          </div>
+                        </div>
                       </details>
                     </div>
-                  </div>
-                  <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
-                    <div className="text-[11px] text-slate-500">AI1 输出（directive）</div>
-                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-600">
-                      {safeJSONStringify(ai1OutputForDisplay)}
-                    </pre>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">第一段：系统提示（固定层 / fixed）</div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-[11px] text-slate-500">
-                          v{ai1FixedTemplate?.version || "-"} · {ai1FixedTemplate?.resolved_from || "built-in"}
-                        </div>
-                        <button
-                          type="button"
-                          className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
-                          onClick={() => void handleCopyJSON("ai1-fixed-prompt", ai1FixedPromptText)}
-                        >
-                          {copiedKey === "ai1-fixed-prompt" ? "已复制" : "复制原文"}
-                        </button>
-                      </div>
-                    </div>
-                    <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
-                      {ai1FixedPromptText}
-                    </pre>
-                  </div>
-                  <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">第二段：系统提示（可编辑层 / editable）</div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-[11px] text-slate-500">
-                          v{ai1EditableTemplate?.version || "-"} · enabled {String(ai1EditableTemplate?.enabled ?? false)}
-                        </div>
-                        <button
-                          type="button"
-                          className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
-                          onClick={() => void handleCopyJSON("ai1-editable-prompt", ai1EditablePromptText)}
-                        >
-                          {copiedKey === "ai1-editable-prompt" ? "已复制" : "复制原文"}
-                        </button>
-                      </div>
-                    </div>
-                    <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
-                      {ai1EditablePromptText}
-                    </pre>
-                  </div>
-                  <div className="rounded-xl border border-indigo-100 bg-white p-2 text-xs text-slate-700">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">第三段：输出契约（output contract）</div>
-                      <button
-                        type="button"
-                        className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
-                        onClick={() => void handleCopyJSON("ai1-output-contract", AI1_OUTPUT_CONTRACT_TEXT)}
-                      >
-                        {copiedKey === "ai1-output-contract" ? "已复制" : "复制原文"}
-                      </button>
-                    </div>
-                    <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
-                      {AI1_OUTPUT_CONTRACT_TEXT}
-                    </pre>
-                    <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/40 px-2 py-1 text-[10px] text-slate-600">
-                      {'最终补充：无论运营模板如何描述，最终返回必须是 {"directive":{...}}。'}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-2 text-xs text-slate-700">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-indigo-700">AI1 最终 system prompt（完整三段拼接）</div>
-                      <button
-                        type="button"
-                        className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50"
-                        onClick={() => void handleCopyJSON("ai1-system-prompt-assembled", ai1SystemPromptAssembled)}
-                      >
-                        {copiedKey === "ai1-system-prompt-assembled" ? "已复制" : "复制原文"}
-                      </button>
-                    </div>
-                    <pre className="whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-700">
-                      {ai1SystemPromptAssembled}
-                    </pre>
                   </div>
                 </div>
               </div>
@@ -2368,12 +2171,12 @@ export default function AdminHighlightJobDetailPage() {
                       {copiedKey === "ai2-payload" ? "已复制" : "复制原文"}
                     </button>
                   </div>
-                  <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-600">
+                  <pre className="mt-1 whitespace-pre-wrap break-all whitespace-pre-wrap text-[11px] text-slate-600">
                     {safeJSONStringify(ai2InputForDisplay)}
                   </pre>
                 </div>
-                <div className="max-h-72 overflow-auto rounded-xl border border-blue-100 bg-white">
-                  <table className="w-full text-left text-xs">
+                <div className="rounded-xl border border-blue-100 bg-white">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-blue-50 text-blue-700">
                       <tr>
                         <th className="px-3 py-2">rank/id</th>
@@ -2395,10 +2198,10 @@ export default function AdminHighlightJobDetailPage() {
                             base {formatScore(item.base_score)}
                             <div className="text-[10px] text-slate-500">standalone {formatScore(item.standalone_confidence)}</div>
                           </td>
-                          <td className="px-3 py-2 max-w-[220px] truncate" title={(item.semantic_tags || []).join(", ")}>
+                          <td className="px-3 py-2  " title={(item.semantic_tags || []).join(", ")}>
                             {(item.semantic_tags || []).join(" / ") || "-"}
                           </td>
-                          <td className="px-3 py-2 max-w-[320px] truncate" title={item.proposal_reason || ""}>{item.proposal_reason || "-"}</td>
+                          <td className="px-3 py-2  " title={item.proposal_reason || ""}>{item.proposal_reason || "-"}</td>
                         </tr>
                       ))}
                       {!detailProposals.length ? (
@@ -2587,7 +2390,7 @@ export default function AdminHighlightJobDetailPage() {
                                       <div>
                                         render {formatDurationMs(parseNumberValue(meta.render_elapsed_ms))} · upload {formatDurationMs(parseNumberValue(meta.upload_elapsed_ms))}
                                       </div>
-                                      <div className="truncate text-slate-400" title={output.qiniu_key || ""}>key：{output.qiniu_key || "-"}</div>
+                                      <div className=" text-slate-400" title={output.qiniu_key || ""}>key：{output.qiniu_key || "-"}</div>
                                     </div>
                                   </div>
                                 );
@@ -2667,8 +2470,8 @@ export default function AdminHighlightJobDetailPage() {
                             ) : null}
                           </div>
                           {feedbacks.length ? (
-                            <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white">
-                              <table className="w-full text-left text-[11px]">
+                            <div className="rounded-xl border border-slate-200 bg-white">
+                              <table className="w-full table-fixed text-left text-[11px]">
                                 <thead className="bg-slate-50 text-slate-500">
                                   <tr>
                                     <th className="px-2 py-2">时间</th>
@@ -2705,8 +2508,8 @@ export default function AdminHighlightJobDetailPage() {
                             </div>
                           </div>
                           {rerenders.length ? (
-                            <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white">
-                              <table className="w-full text-left text-[11px]">
+                            <div className="rounded-xl border border-slate-200 bg-white">
+                              <table className="w-full table-fixed text-left text-[11px]">
                                 <thead className="bg-slate-50 text-slate-500">
                                   <tr>
                                     <th className="px-2 py-2">时间</th>
@@ -2768,8 +2571,8 @@ export default function AdminHighlightJobDetailPage() {
               </button>
             </div>
             {openSections.scoring ? (
-              <div className="max-h-72 overflow-auto rounded-xl border border-emerald-100 bg-white">
-                <table className="w-full text-left text-xs">
+              <div className="rounded-xl border border-emerald-100 bg-white">
+                <table className="w-full table-fixed text-left text-xs">
                   <thead className="bg-emerald-50 text-emerald-700">
                     <tr>
                       <th className="px-3 py-2">output/proposal</th>
@@ -2831,12 +2634,12 @@ export default function AdminHighlightJobDetailPage() {
                       {copiedKey === "ai3-payload" ? "已复制" : "复制原文"}
                     </button>
                   </div>
-                  <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-600">
+                  <pre className="mt-1 whitespace-pre-wrap break-all whitespace-pre-wrap text-[11px] text-slate-600">
                     {safeJSONStringify(ai3InputForDisplay)}
                   </pre>
                 </div>
-                <div className="max-h-72 overflow-auto rounded-xl border border-amber-100 bg-white">
-                  <table className="w-full text-left text-xs">
+                <div className="rounded-xl border border-amber-100 bg-white">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-amber-50 text-amber-700">
                       <tr>
                         <th className="px-3 py-2">状态</th>
@@ -2851,7 +2654,7 @@ export default function AdminHighlightJobDetailPage() {
                           <td className="px-3 py-2">{reviewStatusLabel(item.final_recommendation)}</td>
                           <td className="px-3 py-2">output {item.output_id || "-"}<div className="text-[10px] text-slate-500">proposal {item.proposal_id || "-"}</div></td>
                           <td className="px-3 py-2">{formatScore(item.semantic_verdict)}</td>
-                          <td className="px-3 py-2 max-w-[300px] truncate" title={item.diagnostic_reason || ""}>{item.diagnostic_reason || "-"}</td>
+                          <td className="px-3 py-2  " title={item.diagnostic_reason || ""}>{item.diagnostic_reason || "-"}</td>
                         </tr>
                       ))}
                       {!detailReviews.length ? (
@@ -2881,8 +2684,8 @@ export default function AdminHighlightJobDetailPage() {
             </div>
             {openSections.output ? (
               <>
-                <div className="mb-3 max-h-72 overflow-auto rounded-xl border border-violet-100 bg-white">
-                  <table className="w-full text-left text-xs">
+                <div className="mb-3 rounded-xl border border-violet-100 bg-white">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-violet-50 text-violet-700">
                       <tr>
                         <th className="px-3 py-2">output/proposal</th>
@@ -2957,7 +2760,7 @@ export default function AdminHighlightJobDetailPage() {
                           <div>语义分：{formatScore(review?.semantic_verdict)} · overall：{formatScore(evalRow?.overall_score)}</div>
                           <div>clarity：{formatScore(evalRow?.clarity_score)} · loop：{formatScore(evalRow?.loop_score)}</div>
                           <div className="text-slate-500">{item.width || 0}x{item.height || 0} · {formatBytes(item.size_bytes)}</div>
-                          <div className="truncate text-slate-400" title={item.qiniu_key || ""}>key：{item.qiniu_key || "-"}</div>
+                          <div className=" text-slate-400" title={item.qiniu_key || ""}>key：{item.qiniu_key || "-"}</div>
                         </div>
                       </div>
                     );
@@ -2984,8 +2787,8 @@ export default function AdminHighlightJobDetailPage() {
               </button>
             </div>
             {openSections.events ? (
-              <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
-                <table className="w-full text-left text-xs">
+              <div className="rounded-xl border border-slate-100">
+                <table className="w-full table-fixed text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
                       <th className="px-3 py-2">时间</th>

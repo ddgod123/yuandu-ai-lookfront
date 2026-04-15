@@ -31,6 +31,13 @@ type Category = {
 
 type TreeItem = { category: Category; depth: number };
 
+type IPBindingMetrics = {
+  total_collections?: number;
+  bound_collections?: number;
+  unbound_collections?: number;
+  coverage?: number;
+};
+
 const sortCategory = (a: Category, b: Category) => {
   const aSort = a.sort ?? 0;
   const bSort = b.sort ?? 0;
@@ -73,7 +80,9 @@ export default function Page() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bindingMetrics, setBindingMetrics] = useState<IPBindingMetrics | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -173,10 +182,25 @@ export default function Page() {
     }
   };
 
+  const loadBindingMetrics = async () => {
+    setMetricsLoading(true);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/ips/binding-metrics`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as IPBindingMetrics;
+      setBindingMetrics(data);
+    } catch {
+      setBindingMetrics(null);
+    } finally {
+      setMetricsLoading(false);
+    }
+  };
+
   // 页面初始化时加载分类和 IP 列表
   useEffect(() => {
     loadCategories();
     loadIps();
+    loadBindingMetrics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -450,7 +474,7 @@ export default function Page() {
     <div className="space-y-6">
       <SectionHeader
         title="IP 管理"
-        description="维护表情包 IP 基础信息。合集与 IP 的绑定请在【合集管理】里设置 ip_id。"
+        description="维护表情包 IP 基础信息。进入编辑页可维护该 IP 关联合集；合集页也可批量设置主IP。"
         actions={
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -467,7 +491,10 @@ export default function Page() {
             </div>
             <button
               className={`${SECONDARY_BUTTON_CLASS} group`}
-              onClick={() => loadIps(keyword)}
+              onClick={() => {
+                void loadIps(keyword);
+                void loadBindingMetrics();
+              }}
               disabled={loading}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : "transition-transform group-hover:rotate-180 duration-500"}`} />
@@ -504,8 +531,31 @@ export default function Page() {
           <div className="mt-1 text-2xl font-black text-slate-700">{summary.inactive}</div>
         </div>
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 shadow-sm">
-          <div className="text-xs font-semibold text-indigo-700">已绑定合集总数</div>
+          <div className="text-xs font-semibold text-indigo-700">IP下关联合集总量</div>
           <div className="mt-1 text-2xl font-black text-indigo-700">{summary.boundCollections}</div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500">合集总数（去重）</div>
+          <div className="mt-1 text-2xl font-black text-slate-900">
+            {metricsLoading ? "-" : Number(bindingMetrics?.total_collections || 0)}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-emerald-700">已绑定合集（去重）</div>
+          <div className="mt-1 text-2xl font-black text-emerald-700">
+            {metricsLoading ? "-" : Number(bindingMetrics?.bound_collections || 0)}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 shadow-sm">
+          <div className="text-xs font-semibold text-amber-700">绑定覆盖率</div>
+          <div className="mt-1 text-2xl font-black text-amber-700">
+            {metricsLoading
+              ? "-"
+              : `${((Number(bindingMetrics?.coverage || 0) || 0) * 100).toFixed(1)}%`}
+          </div>
         </div>
       </div>
 
@@ -567,6 +617,12 @@ export default function Page() {
                         >
                           <Edit2 className="h-3 w-3" />
                           编辑
+                        </Link>
+                        <Link
+                          className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                          href={`/admin/taxonomy/ips/${item.id}/edit#bindings-panel`}
+                        >
+                          绑定管理
                         </Link>
                         <button
                           className="flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50"
