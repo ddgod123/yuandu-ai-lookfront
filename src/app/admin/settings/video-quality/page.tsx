@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import PromptSourceBadge, { parsePromptSource } from "@/app/admin/_components/PromptSourceBadge";
 import SectionHeader from "@/app/admin/_components/SectionHeader";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 
@@ -308,6 +309,10 @@ type AdminVideoAIPromptTemplateVersionsResponse = {
   layer?: string;
   resolved_from?: string;
   items?: AdminVideoAIPromptTemplateVersionItem[];
+};
+
+type AdminVideoAIPromptFixedTemplateDetailResponse = {
+  item?: AdminVideoAIPromptTemplateItem;
 };
 
 type AI1SceneKey = string;
@@ -827,6 +832,14 @@ const TEMPLATE_TAB_OPTIONS: Array<{ value: PromptTemplateTabKey; label: string; 
   { value: "ai3", label: "AI3 模板", desc: "固定层（复审阶段）" },
 ];
 
+const PROMPT_STAGE_LABEL: Record<string, string> = {
+  ai1: "AI1",
+  ai2: "AI2",
+  scoring: "SCORING",
+  ai3: "AI3",
+  default: "DEFAULT",
+};
+
 function toNumber(value: string, fallback: number) {
   const raw = value.trim();
   if (!raw) return fallback;
@@ -988,6 +1001,61 @@ async function parseApiError(response: Response, fallback: string) {
   }
 }
 
+type APIValidationIssue = {
+  field_path?: string;
+  code?: string;
+  message?: string;
+};
+
+class AdminRequestError extends Error {
+  status: number;
+  validationIssues: APIValidationIssue[];
+
+  constructor(message: string, status: number, validationIssues: APIValidationIssue[] = []) {
+    super(message);
+    this.name = "AdminRequestError";
+    this.status = status;
+    this.validationIssues = validationIssues;
+  }
+}
+
+async function parseApiErrorWithValidation(response: Response, fallback: string) {
+  const text = await response.text();
+  if (!text) return { message: fallback, validationIssues: [] as APIValidationIssue[] };
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: string;
+      message?: string;
+      validation_issues?: APIValidationIssue[];
+    };
+    return {
+      message: parsed.message || parsed.error || fallback,
+      validationIssues: Array.isArray(parsed.validation_issues) ? parsed.validation_issues : [],
+    };
+  } catch {
+    return { message: text || fallback, validationIssues: [] as APIValidationIssue[] };
+  }
+}
+
+async function buildRequestErrorWithValidation(response: Response, fallback: string) {
+  const parsed = await parseApiErrorWithValidation(response, fallback);
+  return new AdminRequestError(parsed.message, response.status, parsed.validationIssues);
+}
+
+function extractValidationIssues(error: unknown): APIValidationIssue[] {
+  if (error instanceof AdminRequestError) return error.validationIssues || [];
+  return [];
+}
+
+function normalizeIssueMessage(issue: APIValidationIssue) {
+  const path = (issue.field_path || "").trim();
+  const message = (issue.message || "").trim();
+  const code = (issue.code || "").trim();
+  if (!path && !code) return message || "参数校验失败";
+  const prefix = [path, code].filter(Boolean).join(" · ");
+  return message ? `${prefix}：${message}` : prefix;
+}
+
 function formatTime(value?: string) {
   if (!value) return "-";
   const parsed = new Date(value);
@@ -1022,6 +1090,14 @@ function formatAuditFieldValue(value: unknown) {
     return JSON.stringify(value);
   } catch {
     return String(value);
+  }
+}
+
+function formatPrettyObject(value: unknown) {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch {
+    return String(value ?? "{}");
   }
 }
 
@@ -1096,6 +1172,7 @@ function mapFallbackAuditToEffectCard(item: VideoJobsOverviewRolloutAudit): Vide
 }
 
 export default function Page() {
+  const router = useRouter();
   const pathname = usePathname();
   const lockedQualityFormat = resolveLockedQualityFormatByPath(pathname);
   const initialQualityFormat = lockedQualityFormat || "all";
@@ -1123,6 +1200,7 @@ export default function Page() {
   const [templateItems, setTemplateItems] = useState<AdminVideoAIPromptTemplateItem[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateValidationIssues, setTemplateValidationIssues] = useState<APIValidationIssue[]>([]);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
   const [templateAudits, setTemplateAudits] = useState<AdminVideoAIPromptTemplateAuditItem[]>([]);
@@ -1132,10 +1210,19 @@ export default function Page() {
   const [templateVersionsLoading, setTemplateVersionsLoading] = useState(false);
   const [templateActivateSaving, setTemplateActivateSaving] = useState(false);
   const [selectedVersionID, setSelectedVersionID] = useState<number>(0);
+  const [fixedTemplateViewOpen, setFixedTemplateViewOpen] = useState(false);
+  const [fixedTemplateViewLoading, setFixedTemplateViewLoading] = useState(false);
+  const [fixedTemplateViewError, setFixedTemplateViewError] = useState<string | null>(null);
+  const [fixedTemplateViewItem, setFixedTemplateViewItem] = useState<AdminVideoAIPromptTemplateItem | null>(null);
+  const [fixedTemplateViewCompatTip, setFixedTemplateViewCompatTip] = useState<string | null>(null);
   const [ai1EditableEnabled, setAi1EditableEnabled] = useState(true);
   const [ai1EditableVersion, setAi1EditableVersion] = useState("v1");
   const [ai1EditableText, setAi1EditableText] = useState("");
   const [ai1EditableTemplateSchema, setAi1EditableTemplateSchema] = useState<Record<string, unknown>>({});
+  const [ai1EditablePNGTemplate, setAi1EditablePNGTemplate] = useState<AdminVideoAIPromptTemplateItem | null>(null);
+  const [ai1EditableALLTemplate, setAi1EditableALLTemplate] = useState<AdminVideoAIPromptTemplateItem | null>(null);
+  const [ai1EditableChainLoading, setAi1EditableChainLoading] = useState(false);
+  const [ai1EditableChainError, setAi1EditableChainError] = useState<string | null>(null);
   const [ai1SceneStrategyVersion, setAi1SceneStrategyVersion] = useState("png_scene_strategy_v1");
   const [ai1SceneStrategyDrafts, setAi1SceneStrategyDrafts] =
     useState<Record<AI1SceneKey, AI1SceneStrategyDraft>>(deepCloneAI1SceneStrategyDrafts());
@@ -1147,6 +1234,112 @@ export default function Page() {
   const [ai1ConstraintJSON, setAi1ConstraintJSON] = useState("");
   const [ai1ConstraintError, setAi1ConstraintError] = useState<string | null>(null);
   const [ai1ConstraintSuccess, setAi1ConstraintSuccess] = useState<string | null>(null);
+  const templateVersionSelectRef = useRef<HTMLSelectElement | null>(null);
+  const ai1EditableVersionRef = useRef<HTMLInputElement | null>(null);
+  const ai1EditableTextRef = useRef<HTMLTextAreaElement | null>(null);
+  const ai1SceneStrategyVersionRef = useRef<HTMLInputElement | null>(null);
+  const ai1SceneStrategySectionRef = useRef<HTMLDivElement | null>(null);
+
+  const templateResolvedSource = useMemo(() => parsePromptSource(templateVersionsResolvedFrom), [templateVersionsResolvedFrom]);
+  const templateResolvedFormat = (templateResolvedSource?.format || "").trim().toLowerCase();
+  const templateResolvedStage = (templateResolvedSource?.stage || "").trim().toLowerCase();
+  const templateSourceMismatch = useMemo(() => {
+    if (!templateResolvedSource) return false;
+    if (templateResolvedFormat && templateResolvedFormat !== templateFormat) return true;
+    if (templateResolvedStage && templateResolvedStage !== templateTab) return true;
+    return false;
+  }, [templateResolvedFormat, templateResolvedSource, templateResolvedStage, templateFormat, templateTab]);
+  const templateSourceHint = useMemo(() => {
+    if (!templateResolvedSource) return "";
+    if (templateResolvedFormat && templateResolvedFormat !== templateFormat) {
+      return `当前是 ${templateResolvedFormat.toUpperCase()} 作用域回退版本；若要切换，请先切到对应作用域再操作。`;
+    }
+    if (templateResolvedStage && templateResolvedStage !== templateTab) {
+      return `当前是 ${PROMPT_STAGE_LABEL[templateResolvedStage] || templateResolvedStage.toUpperCase()} 阶段回退版本；若要切换，请先切到对应阶段再操作。`;
+    }
+    return "";
+  }, [templateResolvedSource, templateResolvedFormat, templateResolvedStage, templateFormat, templateTab]);
+
+  const hasTemplateValidationIssue = useCallback(
+    (matcher: (issue: APIValidationIssue) => boolean) => templateValidationIssues.some((issue) => matcher(issue)),
+    [templateValidationIssues]
+  );
+  const ai1VersionHasIssue = hasTemplateValidationIssue((issue) => (issue.field_path || "").toLowerCase().includes("version"));
+  const ai1TemplateTextHasIssue = hasTemplateValidationIssue((issue) => (issue.field_path || "").toLowerCase().includes("template_text"));
+  const ai1TemplateSchemaHasIssue = hasTemplateValidationIssue((issue) => {
+    const path = (issue.field_path || "").toLowerCase();
+    return (
+      path.includes("template_json_schema") ||
+      path.includes("scene_strategies") ||
+      path.includes("quality_weights") ||
+      path.includes("candidate_count_bias") ||
+      path.includes("technical_reject") ||
+      path.includes("must_capture_bias") ||
+      path.includes("avoid_bias") ||
+      path.includes("risk_flags")
+    );
+  });
+
+  const focusElement = useCallback((node: HTMLElement | null) => {
+    if (!node) return false;
+    node.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    node.focus();
+    return true;
+  }, []);
+
+  const focusTemplateValidationIssue = useCallback(
+    (issue: APIValidationIssue) => {
+      const path = (issue.field_path || "").toLowerCase();
+      const isSchemaIssue =
+        path.includes("template_json_schema") ||
+        path.includes("scene_strategies") ||
+        path.includes("quality_weights") ||
+        path.includes("candidate_count_bias") ||
+        path.includes("technical_reject") ||
+        path.includes("must_capture_bias") ||
+        path.includes("avoid_bias") ||
+        path.includes("risk_flags");
+      const isEditableVersionIssue =
+        path.includes("version") &&
+        !path.includes("template_id") &&
+        !path.includes("stage") &&
+        !path.includes("layer") &&
+        !path.includes("format");
+      const needAI1 = isEditableVersionIssue || path.includes("template_text") || isSchemaIssue;
+      const focusTarget = () => {
+        if (path.includes("template_id")) {
+          focusElement(templateVersionSelectRef.current);
+          return;
+        }
+        if (path.includes("template_text")) {
+          focusElement(ai1EditableTextRef.current);
+          return;
+        }
+        if (isSchemaIssue) {
+          if (!focusElement(ai1SceneStrategyVersionRef.current)) {
+            focusElement(ai1SceneStrategySectionRef.current);
+          }
+          return;
+        }
+        if (isEditableVersionIssue) {
+          focusElement(ai1EditableVersionRef.current);
+          return;
+        }
+        if (path.includes("format") || path.includes("stage") || path.includes("layer")) {
+          focusElement(templateVersionSelectRef.current);
+        }
+      };
+      if (needAI1 && templateTab !== "ai1") {
+        setTemplateTab("ai1");
+        window.setTimeout(() => {
+          focusTarget();
+        }, 120);
+        return;
+      }
+      focusTarget();
+    },
+    [focusElement, templateTab]
+  );
   const [splitBackfillStatus, setSplitBackfillStatus] = useState<AdminVideoImageSplitBackfillStatus | null>(null);
   const [splitBackfillLoading, setSplitBackfillLoading] = useState(false);
   const [splitBackfillStarting, setSplitBackfillStarting] = useState(false);
@@ -1155,6 +1348,7 @@ export default function Page() {
   const [splitBackfillBatchSize, setSplitBackfillBatchSize] = useState("500");
   const [splitBackfillFormat, setSplitBackfillFormat] = useState<QualityFormatScope>("all");
   const [splitBackfillTables, setSplitBackfillTables] = useState("jobs,outputs,packages,events,feedbacks");
+  const splitBackfillFeatureEnabled = false;
 
   const activeQualityFormat = normalizeQualityFormatScope(lockedQualityFormat || qualityFormat);
   const qualityTitle = QUALITY_SCOPE_TITLES[activeQualityFormat] || "视频转图质量";
@@ -1177,6 +1371,10 @@ export default function Page() {
     { key: "events", label: "Events", stats: splitBackfillReport?.events },
     { key: "feedbacks", label: "Feedbacks", stats: splitBackfillReport?.feedbacks },
   ];
+  const selectedTemplateVersion = useMemo(() => {
+    if (!selectedVersionID) return null;
+    return templateVersions.find((item) => item.id === selectedVersionID) || null;
+  }, [templateVersions, selectedVersionID]);
 
   const findTemplate = (stage: PromptTemplateStage, layer: PromptTemplateLayer) => {
     return templateItems.find((item) => {
@@ -1292,6 +1490,7 @@ export default function Page() {
   const loadPromptTemplates = useCallback(async (format: PromptTemplateFormat) => {
     setTemplateLoading(true);
     setTemplateError(null);
+    setTemplateValidationIssues([]);
     setTemplateSuccess(null);
     try {
       const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates?format=${format}`);
@@ -1319,6 +1518,7 @@ export default function Page() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "加载 AI 模板失败";
       setTemplateError(message);
+      setTemplateValidationIssues(extractValidationIssues(err));
       setTemplateItems([]);
       setAi1EditableEnabled(true);
       setAi1EditableVersion("v1");
@@ -1330,6 +1530,35 @@ export default function Page() {
       setAi1SceneStrategySuccess(null);
     } finally {
       setTemplateLoading(false);
+    }
+  }, []);
+
+  const loadAI1EditableTemplateChain = useCallback(async () => {
+    setAi1EditableChainLoading(true);
+    setAi1EditableChainError(null);
+    try {
+      const fetchEditable = async (format: PromptTemplateFormat) => {
+        const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates?format=${format}`);
+        if (!res.ok) throw new Error(await parseApiError(res, `加载 ${format.toUpperCase()} AI1 模板失败`));
+        const data = (await res.json()) as AdminVideoAIPromptTemplatesResponse;
+        const items = Array.isArray(data.items) ? data.items : [];
+        return (
+          items.find((item) => {
+            return normalizePromptTemplateStage(item.stage) === "ai1" && normalizePromptTemplateLayer(item.layer) === "editable";
+          }) || null
+        );
+      };
+
+      const [pngItem, allItem] = await Promise.all([fetchEditable("png"), fetchEditable("all")]);
+      setAi1EditablePNGTemplate(pngItem);
+      setAi1EditableALLTemplate(allItem);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "加载 AI1 模板链路失败";
+      setAi1EditableChainError(message);
+      setAi1EditablePNGTemplate(null);
+      setAi1EditableALLTemplate(null);
+    } finally {
+      setAi1EditableChainLoading(false);
     }
   }, []);
 
@@ -1380,19 +1609,101 @@ export default function Page() {
     }
   }, []);
 
+  const loadFixedTemplateDetail = useCallback(async (templateID: number) => {
+    if (!templateID) {
+      setFixedTemplateViewError("请选择一个版本。");
+      setFixedTemplateViewItem(null);
+      return;
+    }
+    setFixedTemplateViewLoading(true);
+    setFixedTemplateViewError(null);
+    setFixedTemplateViewCompatTip(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates/fixed/${templateID}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          const picked = templateVersions.find((item) => item.id === templateID);
+          if (!picked) throw new Error("未找到该版本信息。");
+          const stage = normalizePromptTemplateStage(picked.stage) || templateTab;
+          let fallbackText =
+            templateItems.find((item) => item.id === templateID)?.template_text ||
+            templateItems.find((item) => {
+              return (
+                normalizePromptTemplateStage(item.stage) === stage &&
+                normalizePromptTemplateLayer(item.layer) === "fixed" &&
+                !!item.is_active
+              );
+            })?.template_text ||
+            "";
+          if (!fallbackText) {
+            fallbackText = "（当前后端版本未提供 fixed 详情接口，无法读取该历史版本正文。请升级 backend 后查看。）";
+          }
+          setFixedTemplateViewItem({
+            id: picked.id,
+            format: (picked.format || templateFormat).toLowerCase(),
+            stage: (picked.stage || templateTab).toLowerCase(),
+            layer: "fixed",
+            template_text: fallbackText,
+            template_json_schema: {},
+            enabled: !!picked.enabled,
+            version: (picked.version || "").trim(),
+            is_active: !!picked.is_active,
+            resolved_from:
+              ((picked.format || templateFormat).toLowerCase() || "all") +
+              "/" +
+              ((picked.stage || templateTab).toLowerCase() || "default"),
+            updated_at: picked.updated_at || "",
+          });
+          setFixedTemplateViewCompatTip("当前后端未上线 /fixed/:id 接口，已使用兼容模式展示。");
+          return;
+        }
+        throw new Error(await parseApiError(res, "加载固定模板详情失败"));
+      }
+      const data = (await res.json()) as AdminVideoAIPromptFixedTemplateDetailResponse;
+      if (!data.item || !data.item.id) throw new Error("模板详情为空");
+      setFixedTemplateViewItem(data.item);
+      setFixedTemplateViewCompatTip(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "加载固定模板详情失败";
+      setFixedTemplateViewError(message);
+      setFixedTemplateViewItem(null);
+      setFixedTemplateViewCompatTip(null);
+    } finally {
+      setFixedTemplateViewLoading(false);
+    }
+  }, [templateFormat, templateItems, templateTab, templateVersions]);
+
+  const openFixedTemplateViewer = async () => {
+    if (!selectedVersionID) {
+      setTemplateError("请先选择要查看的版本。");
+      return;
+    }
+    setFixedTemplateViewOpen(true);
+    await loadFixedTemplateDetail(selectedVersionID);
+  };
+
+  const openFixedTemplateListPage = () => {
+    const params = new URLSearchParams();
+    params.set("format", templateFormat);
+    params.set("stage", templateTab);
+    router.push(`/admin/settings/video-quality/fixed-templates?${params.toString()}`);
+  };
+
   const activateFixedTemplateVersion = async () => {
+    setTemplateValidationIssues([]);
     const stage = templateTab;
     const layer = "fixed";
     if (!selectedVersionID) {
       setTemplateError("请选择要切换的版本。");
       return;
     }
-    if (templateVersionsResolvedFrom && templateVersionsResolvedFrom !== templateFormat) {
-      setTemplateError(`当前展示为 ${templateVersionsResolvedFrom} 回退版本，不能在 ${templateFormat} 作用域直接切换。`);
+    if (templateSourceMismatch) {
+      setTemplateError(templateSourceHint || "当前展示为回退版本，请切换到对应作用域后再执行版本切换。");
       return;
     }
     setTemplateActivateSaving(true);
     setTemplateError(null);
+    setTemplateValidationIssues([]);
     setTemplateSuccess(null);
     try {
       const res = await fetchWithAuth(`${API_BASE}/api/admin/video-jobs/ai-prompt-templates/activate`, {
@@ -1406,50 +1717,69 @@ export default function Page() {
           reason: "admin_activate_from_quality_page",
         }),
       });
-      if (!res.ok) throw new Error(await parseApiError(res, "切换模板版本失败"));
+      if (!res.ok) throw await buildRequestErrorWithValidation(res, "切换模板版本失败");
       await loadPromptTemplateVersions(templateFormat, templateTab);
       await loadPromptTemplates(templateFormat);
       await loadPromptTemplateAudits(templateFormat, templateTab);
       setTemplateSuccess(`已切换 ${stage.toUpperCase()} 固定层版本。`);
+      setTemplateValidationIssues([]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "切换模板版本失败";
       setTemplateError(message);
+      setTemplateValidationIssues(extractValidationIssues(err));
     } finally {
       setTemplateActivateSaving(false);
     }
   };
 
   const saveAI1EditableTemplate = async () => {
+    setTemplateValidationIssues([]);
     const canEditSceneStrategy = templateFormat === "png" || templateFormat === "all";
     if (!ai1EditableVersion.trim()) {
       setTemplateError("AI1 可编辑层版本不能为空。");
+      setTemplateValidationIssues([{ field_path: "version", code: "invalid_version", message: "AI1 可编辑层版本不能为空。" }]);
       setTemplateSuccess(null);
       return;
     }
     if (ai1EditableVersion.trim().length > 64) {
       setTemplateError("AI1 可编辑层版本长度不能超过 64 个字符。");
+      setTemplateValidationIssues([{ field_path: "version", code: "invalid_version", message: "AI1 可编辑层版本长度不能超过 64 个字符。" }]);
       setTemplateSuccess(null);
       return;
     }
     if (ai1EditableText.length > 16000) {
       setTemplateError("AI1 可编辑层模板正文不能超过 16000 个字符。");
+      setTemplateValidationIssues([
+        { field_path: "template_text", code: "invalid_template_text", message: "AI1 可编辑层模板正文不能超过 16000 个字符。" },
+      ]);
       setTemplateSuccess(null);
       return;
     }
     if (canEditSceneStrategy) {
       if (!ai1SceneStrategyVersion.trim()) {
         setTemplateError("PNG 场景策略版本不能为空。");
+        setTemplateValidationIssues([
+          { field_path: "template_json_schema.scene_strategies_v1.version", code: "invalid_schema", message: "PNG 场景策略版本不能为空。" },
+        ]);
         setTemplateSuccess(null);
         return;
       }
       if (ai1SceneStrategyVersion.trim().length > 64) {
         setTemplateError("PNG 场景策略版本长度不能超过 64 个字符。");
+        setTemplateValidationIssues([
+          {
+            field_path: "template_json_schema.scene_strategies_v1.version",
+            code: "invalid_schema",
+            message: "PNG 场景策略版本长度不能超过 64 个字符。",
+          },
+        ]);
         setTemplateSuccess(null);
         return;
       }
     }
     setTemplateSaving(true);
     setTemplateError(null);
+    setTemplateValidationIssues([]);
     setTemplateSuccess(null);
     setAi1SceneStrategyError(null);
     setAi1SceneStrategySuccess(null);
@@ -1483,7 +1813,7 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(await parseApiError(res, "保存 AI1 可编辑层失败"));
+      if (!res.ok) throw await buildRequestErrorWithValidation(res, "保存 AI1 可编辑层失败");
       const data = (await res.json()) as AdminVideoAIPromptTemplatesResponse;
       const normalizedItems = Array.isArray(data.items) ? data.items : [];
       setTemplateItems(normalizedItems);
@@ -1499,13 +1829,16 @@ export default function Page() {
       setAi1SceneStrategyVersion(parsedSceneStrategy.version);
       setAi1SceneStrategyDrafts(parsedSceneStrategy.drafts);
       await loadPromptTemplateAudits(templateFormat, templateTab);
+      await loadAI1EditableTemplateChain();
       setTemplateSuccess(`AI1 可编辑层模板已保存（format=${templateFormat}）。`);
+      setTemplateValidationIssues([]);
       if (canEditSceneStrategy) {
         setAi1SceneStrategySuccess("PNG 场景策略组已同步保存。");
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "保存 AI1 可编辑层失败";
       setTemplateError(message);
+      setTemplateValidationIssues(extractValidationIssues(err));
       if (canEditSceneStrategy) {
         setAi1SceneStrategyError(message);
       }
@@ -1793,6 +2126,17 @@ export default function Page() {
   }, [templateFormat, loadPromptTemplates]);
 
   useEffect(() => {
+    if (templateTab !== "ai1") return;
+    if (templateFormat !== "png" && templateFormat !== "all") {
+      setAi1EditablePNGTemplate(null);
+      setAi1EditableALLTemplate(null);
+      setAi1EditableChainError(null);
+      return;
+    }
+    void loadAI1EditableTemplateChain();
+  }, [templateFormat, templateTab, loadAI1EditableTemplateChain]);
+
+  useEffect(() => {
     void loadPromptTemplateAudits(templateFormat, templateTab);
   }, [templateFormat, templateTab, loadPromptTemplateAudits]);
 
@@ -1801,12 +2145,22 @@ export default function Page() {
   }, [templateFormat, templateTab, loadPromptTemplateVersions]);
 
   useEffect(() => {
+    setFixedTemplateViewOpen(false);
+    setFixedTemplateViewError(null);
+    setFixedTemplateViewItem(null);
+    setFixedTemplateViewCompatTip(null);
+  }, [templateFormat, templateTab]);
+
+  useEffect(() => {
+    if (!splitBackfillFeatureEnabled) {
+      return;
+    }
     void loadSplitBackfillStatus();
     const timer = window.setInterval(() => {
       void loadSplitBackfillStatus(true);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [loadSplitBackfillStatus]);
+  }, [loadSplitBackfillStatus, splitBackfillFeatureEnabled]);
 
   const save = async () => {
     if (!baseForm) {
@@ -1926,7 +2280,8 @@ export default function Page() {
         </div>
       ) : null}
 
-      <div className="space-y-3 rounded-3xl border border-cyan-100 bg-cyan-50/40 p-4 shadow-sm">
+      {splitBackfillFeatureEnabled ? (
+        <div className="space-y-3 rounded-3xl border border-cyan-100 bg-cyan-50/40 p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-bold text-cyan-800">历史任务分表回填（base → format split）</h3>
@@ -2153,7 +2508,8 @@ export default function Page() {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
+      ) : null}
 
       <div className="space-y-4 rounded-3xl border border-indigo-100 bg-indigo-50/40 p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2210,6 +2566,24 @@ export default function Page() {
         {templateError ? (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">{templateError}</div>
         ) : null}
+        {templateValidationIssues.length > 0 ? (
+          <div className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-xs text-rose-700">
+            <div className="mb-2 font-semibold">字段校验详情</div>
+            <ul className="space-y-1">
+              {templateValidationIssues.map((issue, idx) => (
+                <li key={`${issue.field_path || "field"}-${issue.code || "code"}-${idx}`} className="break-all">
+                  <button
+                    type="button"
+                    onClick={() => focusTemplateValidationIssue(issue)}
+                    className="w-full text-left underline decoration-dotted underline-offset-2 hover:text-rose-800"
+                  >
+                    • {normalizeIssueMessage(issue)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {templateSuccess ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
             {templateSuccess}
@@ -2223,12 +2597,18 @@ export default function Page() {
         ) : null}
 
         {!templateLoading ? (
-          <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+          <div className="space-y-3 rounded-2xl border border-indigo-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-xs font-semibold text-indigo-700">固定层版本切换（只读历史）</div>
-                <div className="mt-1 text-[11px] text-indigo-700/80">
-                  当前标签：{templateTab.toUpperCase()} · 来源作用域：{templateVersionsResolvedFrom || "未配置"}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-700/80">
+                  <span>当前标签：{templateTab.toUpperCase()}</span>
+                  <span>来源链路：</span>
+                  <PromptSourceBadge
+                    value={templateVersionsResolvedFrom}
+                    expectedFormat={templateFormat}
+                    expectedStage={templateTab}
+                  />
                 </div>
               </div>
               <button
@@ -2240,13 +2620,15 @@ export default function Page() {
                 {templateVersionsLoading ? "刷新中..." : "刷新版本"}
               </button>
             </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
               <select
+                ref={templateVersionSelectRef}
                 value={selectedVersionID ? String(selectedVersionID) : ""}
                 onChange={(e) => setSelectedVersionID(Number(e.target.value || 0))}
                 className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
                 disabled={templateVersionsLoading || templateVersions.length === 0}
               >
+                {templateVersions.length === 0 ? <option value="">暂无版本</option> : null}
                 {templateVersions.map((item) => (
                   <option key={item.id} value={String(item.id)}>
                     {item.version || `v-${item.id}`} {item.is_active ? "（当前）" : ""} · {formatTime(item.updated_at)}
@@ -2260,16 +2642,40 @@ export default function Page() {
                   templateActivateSaving ||
                   templateVersionsLoading ||
                   !selectedVersionID ||
-                  (templateVersionsResolvedFrom !== "" && templateVersionsResolvedFrom !== templateFormat)
+                  templateSourceMismatch
                 }
                 className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
               >
                 {templateActivateSaving ? "切换中..." : "切换为当前版本"}
               </button>
             </div>
-            {templateVersionsResolvedFrom !== "" && templateVersionsResolvedFrom !== templateFormat ? (
-              <div className="mt-2 text-[11px] text-amber-700">
-                当前是 {templateVersionsResolvedFrom} 回退版本；若要切换，请先切到对应作用域再操作。
+            <div className="grid gap-3 md:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void openFixedTemplateViewer()}
+                disabled={templateVersionsLoading || !selectedVersionID}
+                className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+              >
+                查看
+              </button>
+              <button
+                type="button"
+                onClick={openFixedTemplateListPage}
+                className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+              >
+                固定模板列表
+              </button>
+            </div>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[11px] text-indigo-700/90">
+              当前交互：先在下拉框选择目标版本，再点击「切换为当前版本」生效。
+            </div>
+            {templateSourceHint ? (
+              <div className="text-[11px] text-amber-700">{templateSourceHint}</div>
+            ) : null}
+            {selectedTemplateVersion ? (
+              <div className="text-[11px] text-slate-500">
+                已选版本：{selectedTemplateVersion.version || `v-${selectedTemplateVersion.id}`}（ID:{" "}
+                {selectedTemplateVersion.id}）
               </div>
             ) : null}
           </div>
@@ -2335,7 +2741,14 @@ export default function Page() {
             </div>
 
             {templateFormat === "png" || templateFormat === "all" ? (
-              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 text-xs text-violet-800">
+              <div
+                ref={ai1SceneStrategySectionRef}
+                className={`rounded-xl border p-3 text-xs ${
+                  ai1TemplateSchemaHasIssue
+                    ? "border-rose-300 bg-rose-50 text-rose-800"
+                    : "border-violet-200 bg-violet-50/70 text-violet-800"
+                }`}
+              >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="font-semibold">PNG 场景策略组（AI1 动态提示词与运营规则）</div>
@@ -2347,6 +2760,7 @@ export default function Page() {
                   <label className="text-[11px] text-violet-700">
                     <span className="mr-1">策略版本</span>
                     <input
+                      ref={ai1SceneStrategyVersionRef}
                       type="text"
                       value={ai1SceneStrategyVersion}
                       onChange={(e) => {
@@ -2676,6 +3090,53 @@ export default function Page() {
               </div>
             )}
 
+            {(templateFormat === "png" || templateFormat === "all") ? (
+              <div className="space-y-2 rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-xs text-cyan-900">
+                <div className="font-semibold">AI1 可编辑层策略链路快照（PNG 命中 + ALL 兜底）</div>
+                <div className="text-[11px] text-cyan-800/80">
+                  运行时优先命中 <code>png/ai1/editable</code>，未命中时回退到 <code>all/ai1/editable</code>。
+                </div>
+                {ai1EditableChainError ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">{ai1EditableChainError}</div>
+                ) : null}
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    { scope: "PNG（精确命中）", item: ai1EditablePNGTemplate },
+                    { scope: "ALL（兜底）", item: ai1EditableALLTemplate },
+                  ].map((entry) => (
+                    <div key={entry.scope} className="rounded-lg border border-cyan-200 bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] font-semibold text-cyan-800">{entry.scope}</div>
+                        <div className="text-[10px] text-slate-500">
+                          {entry.item
+                            ? `version=${entry.item.version || "-"} · enabled=${entry.item.enabled ? "on" : "off"} · active=${
+                                entry.item.is_active ? "true" : "false"
+                              }`
+                            : "未配置"}
+                        </div>
+                      </div>
+                      {entry.item ? (
+                        <>
+                          <div className="mt-2 text-[10px] text-slate-500">resolved_from: {entry.item.resolved_from || "-"}</div>
+                          <div className="mt-2 text-[10px] font-semibold text-slate-600">template_text</div>
+                          <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-2 text-[10px] leading-4 text-slate-700">
+                            {entry.item.template_text || "（空）"}
+                          </pre>
+                          <div className="mt-2 text-[10px] font-semibold text-slate-600">template_json_schema</div>
+                          <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-2 text-[10px] leading-4 text-slate-700">
+                            {formatPrettyObject(entry.item.template_json_schema || {})}
+                          </pre>
+                        </>
+                      ) : (
+                        <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">当前作用域无可编辑模板。</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {ai1EditableChainLoading ? <div className="text-[11px] text-cyan-700">加载中...</div> : null}
+              </div>
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-3">
               <label className="space-y-1 text-xs text-indigo-700">
                 <span>可编辑层开关</span>
@@ -2691,10 +3152,13 @@ export default function Page() {
               <label className="space-y-1 text-xs text-indigo-700 md:col-span-2">
                 <span>可编辑层版本</span>
                 <input
+                  ref={ai1EditableVersionRef}
                   type="text"
                   value={ai1EditableVersion}
                   onChange={(e) => setAi1EditableVersion(e.target.value)}
-                  className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+                  className={`w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-700 outline-none ${
+                    ai1VersionHasIssue ? "border-rose-300 focus:border-rose-500" : "border-indigo-200 focus:border-indigo-500"
+                  }`}
                   placeholder="例如：v2 / 20260318-alpha"
                 />
               </label>
@@ -2703,10 +3167,13 @@ export default function Page() {
             <label className="block space-y-1 text-xs text-indigo-700">
               <span>AI1 可编辑层模板正文</span>
               <textarea
+                ref={ai1EditableTextRef}
                 value={ai1EditableText}
                 onChange={(e) => setAi1EditableText(e.target.value)}
                 rows={8}
-                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+                className={`w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-700 outline-none ${
+                  ai1TemplateTextHasIssue ? "border-rose-300 focus:border-rose-500" : "border-indigo-200 focus:border-indigo-500"
+                }`}
                 placeholder="在这里编辑给 AI1 的运营策略指令（结构化要求、目标、约束、偏好）。"
               />
             </label>
@@ -2723,9 +3190,10 @@ export default function Page() {
 
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-700">
               <div className="font-semibold">AI1 固定层（只读）</div>
-              <div className="mt-1 text-[11px] text-indigo-700/80">
-                来源：{findTemplate("ai1", "fixed")?.resolved_from || "未配置"}
-                {findTemplate("ai1", "fixed")?.version ? ` · 版本 ${findTemplate("ai1", "fixed")?.version}` : ""}
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-700/80">
+                <span>来源：</span>
+                <PromptSourceBadge value={findTemplate("ai1", "fixed")?.resolved_from} expectedFormat={templateFormat} expectedStage="ai1" />
+                {findTemplate("ai1", "fixed")?.version ? <span>· 版本 {findTemplate("ai1", "fixed")?.version}</span> : null}
               </div>
               <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-[11px] leading-5 text-slate-700">
                 {findTemplate("ai1", "fixed")?.template_text || "（未配置）"}
@@ -2737,9 +3205,10 @@ export default function Page() {
         {!templateLoading && templateTab === "ai2" ? (
           <div className="rounded-2xl border border-indigo-200 bg-white p-4">
             <div className="text-xs font-semibold text-indigo-700">AI2 固定层模板（提名阶段）</div>
-            <div className="mt-1 text-[11px] text-indigo-700/80">
-              来源：{findTemplate("ai2", "fixed")?.resolved_from || "未配置"}
-              {findTemplate("ai2", "fixed")?.version ? ` · 版本 ${findTemplate("ai2", "fixed")?.version}` : ""}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-700/80">
+              <span>来源：</span>
+              <PromptSourceBadge value={findTemplate("ai2", "fixed")?.resolved_from} expectedFormat={templateFormat} expectedStage="ai2" />
+              {findTemplate("ai2", "fixed")?.version ? <span>· 版本 {findTemplate("ai2", "fixed")?.version}</span> : null}
             </div>
             <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-[11px] leading-5 text-slate-700">
               {findTemplate("ai2", "fixed")?.template_text || "（未配置）"}
@@ -2750,11 +3219,10 @@ export default function Page() {
         {!templateLoading && templateTab === "scoring" ? (
           <div className="rounded-2xl border border-indigo-200 bg-white p-4">
             <div className="text-xs font-semibold text-indigo-700">评分系统固定层说明</div>
-            <div className="mt-1 text-[11px] text-indigo-700/80">
-              来源：{findTemplate("scoring", "fixed")?.resolved_from || "未配置"}
-              {findTemplate("scoring", "fixed")?.version
-                ? ` · 版本 ${findTemplate("scoring", "fixed")?.version}`
-                : ""}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-700/80">
+              <span>来源：</span>
+              <PromptSourceBadge value={findTemplate("scoring", "fixed")?.resolved_from} expectedFormat={templateFormat} expectedStage="scoring" />
+              {findTemplate("scoring", "fixed")?.version ? <span>· 版本 {findTemplate("scoring", "fixed")?.version}</span> : null}
             </div>
             <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-[11px] leading-5 text-slate-700">
               {findTemplate("scoring", "fixed")?.template_text || "（未配置）"}
@@ -2765,9 +3233,10 @@ export default function Page() {
         {!templateLoading && templateTab === "ai3" ? (
           <div className="rounded-2xl border border-indigo-200 bg-white p-4">
             <div className="text-xs font-semibold text-indigo-700">AI3 固定层模板（复审阶段）</div>
-            <div className="mt-1 text-[11px] text-indigo-700/80">
-              来源：{findTemplate("ai3", "fixed")?.resolved_from || "未配置"}
-              {findTemplate("ai3", "fixed")?.version ? ` · 版本 ${findTemplate("ai3", "fixed")?.version}` : ""}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-700/80">
+              <span>来源：</span>
+              <PromptSourceBadge value={findTemplate("ai3", "fixed")?.resolved_from} expectedFormat={templateFormat} expectedStage="ai3" />
+              {findTemplate("ai3", "fixed")?.version ? <span>· 版本 {findTemplate("ai3", "fixed")?.version}</span> : null}
             </div>
             <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-[11px] leading-5 text-slate-700">
               {findTemplate("ai3", "fixed")?.template_text || "（未配置）"}
@@ -4395,6 +4864,102 @@ export default function Page() {
           当前标签页聚焦模板治理；打分阈值与质量参数请切换到「打分指标系统」标签查看与调整。
         </div>
       )}
+
+      {fixedTemplateViewOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 px-4 py-8">
+          <div className="max-h-[88vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">固定模板版本详情</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  当前标签：{templateTab.toUpperCase()} · 版本ID：{selectedVersionID || "-"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFixedTemplateViewOpen(false)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                关闭
+              </button>
+            </div>
+            <div className="max-h-[calc(88vh-56px)] overflow-y-auto p-5">
+              {fixedTemplateViewLoading ? (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-5 text-sm text-indigo-700">
+                  模板详情加载中...
+                </div>
+              ) : null}
+              {!fixedTemplateViewLoading && fixedTemplateViewError ? (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+                    {fixedTemplateViewError}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedVersionID) void loadFixedTemplateDetail(selectedVersionID);
+                    }}
+                    className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    重试
+                  </button>
+                </div>
+              ) : null}
+              {!fixedTemplateViewLoading && !fixedTemplateViewError && fixedTemplateViewItem ? (
+                <div className="space-y-4">
+                  {fixedTemplateViewCompatTip ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      {fixedTemplateViewCompatTip}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-3 text-xs text-slate-600 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-semibold text-slate-700">版本：</span>
+                      {fixedTemplateViewItem.version || `v-${fixedTemplateViewItem.id}`}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-semibold text-slate-700">状态：</span>
+                      {fixedTemplateViewItem.is_active ? "当前生效" : "历史版本"}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-semibold text-slate-700">作用域：</span>
+                      {(fixedTemplateViewItem.format || "-").toUpperCase()}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-semibold text-slate-700">阶段：</span>
+                      {(fixedTemplateViewItem.stage || "-").toUpperCase()}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-semibold text-slate-700">更新时间：</span>
+                      {formatTime(fixedTemplateViewItem.updated_at)}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-semibold text-slate-700">启用：</span>
+                      {fixedTemplateViewItem.enabled ? "是" : "否"}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 md:col-span-2">
+                      <span className="font-semibold text-slate-700">来源链路：</span>
+                      <span className="ml-2 inline-flex">
+                        <PromptSourceBadge
+                          value={fixedTemplateViewItem.resolved_from}
+                          expectedFormat={templateFormat}
+                          expectedStage={templateTab}
+                        />
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-2 text-xs font-semibold text-slate-700">模板正文</div>
+                    <pre className="max-h-[45vh] overflow-auto rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-[11px] leading-5 text-slate-100">
+{fixedTemplateViewItem.template_text || "（空）"}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { API_BASE, fetchWithAuth } from "@/lib/admin-auth";
 import { 
   RefreshCw, 
@@ -31,6 +32,9 @@ type Collection = {
   slug: string;
   description?: string;
   cover_url?: string;
+  copyright_author?: string;
+  copyright_work?: string;
+  copyright_link?: string;
   owner_id: number;
   category_id?: number | null;
   ip_id?: number | null;
@@ -42,6 +46,7 @@ type Collection = {
   is_featured?: boolean;
   is_pinned?: boolean;
   is_sample?: boolean;
+  is_showcase?: boolean;
   pinned_at?: string | null;
   visibility?: string;
   status?: string;
@@ -98,11 +103,50 @@ type TagSection = {
   tags: Tag[];
 };
 
+type ListFilterValue =
+  | "all"
+  | "featured"
+  | "sample"
+  | "showcase"
+  | "public"
+  | "private";
+
+type UploadSourceFilterValue = "all" | "ops" | "ugc";
+
+const LIST_FILTER_OPTIONS: { value: ListFilterValue; label: string }[] = [
+  { value: "all", label: "全部合集" },
+  { value: "public", label: "仅公开合集" },
+  { value: "private", label: "仅私有合集" },
+  { value: "featured", label: "仅推荐合集" },
+  { value: "sample", label: "仅样本合集" },
+  { value: "showcase", label: "仅赏析合集" },
+];
+
+const UPLOAD_SOURCE_FILTER_OPTIONS: { value: UploadSourceFilterValue; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "ops", label: "运营上传" },
+  { value: "ugc", label: "用户上传" },
+];
+
 const FILTER_SELECT_CLASS =
-  "h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
-const TOOLBAR_CARD_CLASS = "flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-1.5";
+  "bg-transparent text-xs font-semibold text-slate-600 outline-none cursor-pointer w-full";
+const TOOLBAR_CARD_CLASS = "flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 h-9 transition-colors focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400";
+
+type StatusMeta = {
+  label: string;
+  dotClass: string;
+  textClass: string;
+  badgeClass: string;
+};
+
+type VisibilityMeta = {
+  label: string;
+  textClass: string;
+  badgeClass: string;
+};
 
 export default function Page() {
+  const router = useRouter();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -113,7 +157,8 @@ export default function Page() {
   const [selectedChildId, setSelectedChildId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [listFilter, setListFilter] = useState<"all" | "featured" | "sample" | "public" | "private">("all");
+  const [listFilter, setListFilter] = useState<ListFilterValue>("all");
+  const [uploadSourceFilter, setUploadSourceFilter] = useState<UploadSourceFilterValue>("all");
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,17 +176,19 @@ export default function Page() {
   const [collectionFeatured, setCollectionFeatured] = useState(false);
   const [collectionPinned, setCollectionPinned] = useState(false);
   const [collectionSample, setCollectionSample] = useState(false);
+  const [collectionShowcase, setCollectionShowcase] = useState(false);
+  const [collectionCopyrightAuthor, setCollectionCopyrightAuthor] = useState("");
+  const [collectionCopyrightWork, setCollectionCopyrightWork] = useState("");
+  const [collectionCopyrightLink, setCollectionCopyrightLink] = useState("");
   const [collectionTagIds, setCollectionTagIds] = useState<number[]>([]);
   const [collectionTagFilter, setCollectionTagFilter] = useState("");
   const [collectionTagGroupFilter, setCollectionTagGroupFilter] = useState<number>(0);
   const [collectionSaving, setCollectionSaving] = useState(false);
   const [deletingCollectionId, setDeletingCollectionId] = useState<number | null>(null);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<number[]>([]);
-  const [batchSampleSaving, setBatchSampleSaving] = useState(false);
-  const [batchIPSaving, setBatchIPSaving] = useState(false);
+  const [batchShowcaseSaving, setBatchShowcaseSaving] = useState(false);
   const [batchVisibilitySaving, setBatchVisibilitySaving] = useState(false);
   const [batchTargetVisibility, setBatchTargetVisibility] = useState<"public" | "private">("private");
-  const [batchTargetIPId, setBatchTargetIPId] = useState<number>(0);
   const [exportingSamples, setExportingSamples] = useState(false);
 
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
@@ -183,6 +230,11 @@ export default function Page() {
     if (!selectedTopId) return [];
     return childCategoryMap.get(selectedTopId) || [];
   }, [childCategoryMap, selectedTopId]);
+  const hasActiveFilters =
+    selectedTopId !== null ||
+    selectedChildId !== null ||
+    listFilter !== "all" ||
+    uploadSourceFilter !== "all";
 
   const treeItems = useMemo(() => buildTree(categories), [categories]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
@@ -192,9 +244,9 @@ export default function Page() {
     [collections, selectedIdSet]
   );
   const categoryMap = useMemo(() => {
-    const map = new Map<number, string>();
+    const map = new Map<number, Category>();
     for (const cat of categories) {
-      map.set(cat.id, cat.name);
+      map.set(cat.id, cat);
     }
     return map;
   }, [categories]);
@@ -350,7 +402,8 @@ export default function Page() {
     sizeValue = pageSize,
     topValue = selectedTopId,
     childValue = selectedChildId,
-    listFilterValue = listFilter
+    listFilterValue = listFilter,
+    sourceFilterValue = uploadSourceFilter
   ) => {
     setLoading(true);
     setError(null);
@@ -375,8 +428,15 @@ export default function Page() {
         query.set("is_featured", "1");
       } else if (listFilterValue === "sample") {
         query.set("is_sample", "1");
+      } else if (listFilterValue === "showcase") {
+        query.set("is_showcase", "1");
       } else if (listFilterValue === "public" || listFilterValue === "private") {
         query.set("visibility", listFilterValue);
+      }
+      if (sourceFilterValue === "ops") {
+        query.set("is_original", "0");
+      } else if (sourceFilterValue === "ugc") {
+        query.set("is_original", "1");
       }
       const res = await fetchWithAuth(`${API_BASE}/api/collections?${query.toString()}`);
       if (!res.ok) throw new Error(await res.text());
@@ -393,44 +453,86 @@ export default function Page() {
   };
 
   const hydrateCoverUrls = async (items: Collection[]) => {
-    const keys = items
-      .map((item) => item.cover_url || "")
-      .filter((key) => key && !key.startsWith("http") && !coverUrlMap[key]);
-    const uniqueKeys = Array.from(new Set(keys));
-    if (!uniqueKeys.length) return;
-    let entries: Array<readonly [string, string]> = [];
-    try {
-      const res = await fetchWithAuth(`${API_BASE}/api/storage/urls`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keys: uniqueKeys,
-          style: "cover_static",
-        }),
-      });
-      if (!res.ok) return;
-      const data = (await res.json()) as { items?: { key: string; url?: string }[] };
-      entries = (data.items || [])
-        .filter((item) => item?.key && item?.url)
-        .map((item) => [item.key, item.url as string] as const);
-    } catch {
-      entries = [];
+    const nextMap: Record<string, string> = {};
+    const pendingKeys = new Set<string>();
+    const rawCoverByKey = new Map<string, string[]>();
+
+    for (const item of items) {
+      const rawCover = (item.cover_url || "").trim();
+      if (!rawCover) continue;
+
+      if (rawCover.startsWith("http://") || rawCover.startsWith("https://")) {
+        const key = extractStorageKeyFromURL(rawCover);
+        if (!key) continue;
+
+        const exists = rawCoverByKey.get(key) || [];
+        exists.push(rawCover);
+        rawCoverByKey.set(key, exists);
+
+        if (coverUrlMap[key]) {
+          nextMap[rawCover] = coverUrlMap[key];
+          continue;
+        }
+        pendingKeys.add(key);
+        continue;
+      }
+
+      if (coverUrlMap[rawCover]) continue;
+      pendingKeys.add(rawCover);
     }
-    const map: Record<string, string> = {};
+
+    const uniqueKeys = Array.from(pendingKeys);
+    let entries: Array<readonly [string, string]> = [];
+    if (uniqueKeys.length) {
+      try {
+        const res = await fetchWithAuth(`${API_BASE}/api/storage/urls`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keys: uniqueKeys,
+            style: "cover_static",
+          }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { items?: { key: string; url?: string }[] };
+        entries = (data.items || [])
+          .filter((item) => item?.key && item?.url)
+          .map((item) => [item.key, item.url as string] as const);
+      } catch {
+        entries = [];
+      }
+    }
+
+    const map: Record<string, string> = { ...nextMap };
     entries.forEach((entry) => {
       if (entry) {
         map[entry[0]] = entry[1];
       }
     });
+
+    rawCoverByKey.forEach((rawCovers, key) => {
+      const staticURL = map[key] || coverUrlMap[key];
+      if (!staticURL) return;
+      rawCovers.forEach((raw) => {
+        map[raw] = staticURL;
+      });
+    });
+
     if (Object.keys(map).length) {
       setCoverUrlMap((prev) => ({ ...prev, ...map }));
     }
   };
 
   const resolveCoverUrl = (item: Collection) => {
-    const cover = item.cover_url || "";
+    const cover = (item.cover_url || "").trim();
     if (!cover) return "";
-    if (cover.startsWith("http")) return cover;
+    if (cover.startsWith("http://") || cover.startsWith("https://")) {
+      if (coverUrlMap[cover]) return coverUrlMap[cover];
+      const key = extractStorageKeyFromURL(cover);
+      if (key && coverUrlMap[key]) return coverUrlMap[key];
+      const staticUrl = buildStaticPreview(cover);
+      return staticUrl || cover;
+    }
     return coverUrlMap[cover] || "";
   };
 
@@ -446,9 +548,9 @@ export default function Page() {
 
   // 仅根据筛选条件和分页变化拉取列表
   useEffect(() => {
-    loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
+    loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter, uploadSourceFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, selectedTopId, selectedChildId, listFilter, childCategoryMap]);
+  }, [page, pageSize, selectedTopId, selectedChildId, listFilter, uploadSourceFilter, childCategoryMap]);
 
   useEffect(() => {
     setSelectedCollectionIds((prev) =>
@@ -476,28 +578,7 @@ export default function Page() {
   };
 
   const openCollectionEdit = (collection: Collection) => {
-    setCollectionEditing(collection);
-    setCollectionTitle(collection.title || "");
-    setCollectionDesc(collection.description || "");
-    setCollectionCover(collection.cover_url || "");
-    setCollectionStatus(collection.status || "active");
-    setCollectionVisibility(collection.visibility || "public");
-    setCollectionCategoryId(collection.category_id || 0);
-    setCollectionIPId(collection.ip_id || 0);
-    setCollectionThemeId(collection.theme_id || 0);
-    setCollectionFeatured(Boolean(collection.is_featured));
-    setCollectionPinned(Boolean(collection.is_pinned));
-    setCollectionSample(Boolean(collection.is_sample));
-    setCollectionTagIds(collection.tags?.map((tag) => tag.id) || []);
-    setCollectionTagFilter("");
-    setCollectionTagGroupFilter(0);
-    setCoverPickerOpen(false);
-    setCoverQuery("");
-    setCoverResults([]);
-    setCoverMarker("");
-    setCoverHasNext(false);
-    setCollectionSaving(false);
-    setCollectionEditOpen(true);
+    router.push(`/admin/archive/collections/${collection.id}/edit`);
   };
 
   const closeCollectionEdit = () => {
@@ -537,6 +618,10 @@ export default function Page() {
             is_featured: collectionFeatured,
             is_pinned: collectionPinned,
             is_sample: collectionSample,
+            is_showcase: collectionShowcase,
+            copyright_author: collectionCopyrightAuthor.trim(),
+            copyright_work: collectionCopyrightWork.trim(),
+            copyright_link: collectionCopyrightLink.trim(),
             tag_ids: collectionTagIds,
           }),
         }
@@ -556,59 +641,27 @@ export default function Page() {
     }
   };
 
-  const batchUpdateSampleFlag = async (isSample: boolean) => {
-    if (!selectedCollectionIds.length || batchSampleSaving) return;
-    setBatchSampleSaving(true);
+  const batchUpdateShowcaseFlag = async (isShowcase: boolean) => {
+    if (!selectedCollectionIds.length || batchShowcaseSaving) return;
+    setBatchShowcaseSaving(true);
     setError(null);
     try {
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/batch-sample`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/batch-showcase`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           collection_ids: selectedCollectionIds,
-          is_sample: isSample,
+          is_showcase: isShowcase,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       await loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
       setSelectedCollectionIds([]);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "批量更新样本状态失败";
+      const message = err instanceof Error ? err.message : "批量设置赏析状态失败";
       setError(message);
     } finally {
-      setBatchSampleSaving(false);
-    }
-  };
-
-  const batchAssignIP = async (ipId: number) => {
-    if (!selectedCollectionIds.length || batchIPSaving) return;
-    const targetName =
-      ipId > 0 ? ips.find((item) => item.id === ipId)?.name || `IP#${ipId}` : "清空IP";
-    const actionLabel = ipId > 0 ? "设置IP" : "清空IP";
-    const confirmed = window.confirm(
-      `确认${actionLabel}？\n已选合集：${selectedCollectionIds.length} 条\n目标：${targetName}`
-    );
-    if (!confirmed) return;
-
-    setBatchIPSaving(true);
-    setError(null);
-    try {
-      const res = await fetchWithAuth(`${API_BASE}/api/admin/collections/batch-assign-ip`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          collection_ids: selectedCollectionIds,
-          ip_id: ipId > 0 ? ipId : null,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      await loadCollections(page, pageSize, selectedTopId, selectedChildId, listFilter);
-      setSelectedCollectionIds([]);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "批量设置IP失败";
-      setError(message);
-    } finally {
-      setBatchIPSaving(false);
+      setBatchShowcaseSaving(false);
     }
   };
 
@@ -705,7 +758,12 @@ export default function Page() {
   const coverPreviewUrl = useMemo(() => {
     if (!collectionCover) return "";
     if (!isImageFile(collectionCover)) return "";
-    if (collectionCover.startsWith("http")) return collectionCover;
+    if (collectionCover.startsWith("http://") || collectionCover.startsWith("https://")) {
+      if (coverUrlMap[collectionCover]) return coverUrlMap[collectionCover];
+      const key = extractStorageKeyFromURL(collectionCover);
+      if (key && coverUrlMap[key]) return coverUrlMap[key];
+      return buildStaticPreview(collectionCover) || collectionCover;
+    }
     return coverUrlMap[collectionCover] || "";
   }, [collectionCover, coverUrlMap]);
 
@@ -713,7 +771,28 @@ export default function Page() {
     const fetchDirectUrl = async () => {
       if (!collectionCover) return;
       if (!isImageFile(collectionCover)) return;
-      if (collectionCover.startsWith("http")) return;
+      if (collectionCover.startsWith("http://") || collectionCover.startsWith("https://")) {
+        if (coverUrlMap[collectionCover]) return;
+        const key = extractStorageKeyFromURL(collectionCover);
+        if (!key || coverUrlMap[key]) return;
+        try {
+          const res = await fetchWithAuth(
+            `${API_BASE}/api/storage/url?key=${encodeURIComponent(key)}&style=cover_static`
+          );
+          if (!res.ok) return;
+          const data = (await res.json()) as { url?: string };
+          if (data.url) {
+            setCoverUrlMap((prev) => ({
+              ...prev,
+              [key]: data.url!,
+              [collectionCover]: data.url!,
+            }));
+          }
+        } catch {
+          // ignore
+        }
+        return;
+      }
       if (coverUrlMap[collectionCover]) return;
       try {
         const res = await fetchWithAuth(
@@ -790,222 +869,182 @@ export default function Page() {
       )}
 
       <div className="rounded-[2.5rem] border border-slate-100 bg-white p-6 shadow-sm">
-        {/* 筛选区域 */}
-        <div className="sticky top-4 z-30 mb-6 w-full rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
-                <Layers size={14} /> 一级分类
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2.5">
-                <button
-                  onClick={() => {
-                    setSelectedTopId(null);
-                    setSelectedChildId(null);
-                    setPage(1);
-                  }}
-                  className={`rounded-xl px-5 py-2 text-xs font-black ${
-                    selectedTopId === null
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-50 text-slate-500 hover:bg-slate-100"
-                  }`}
-                >
-                  全部
-                </button>
-                {topCategories.map((item) => {
-                  const active = item.id === selectedTopId;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedTopId(item.id);
-                        setSelectedChildId(null);
-                        setPage(1);
-                      }}
-                      className={`rounded-xl px-5 py-2 text-xs font-black ${
-                        active
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-50 text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-50">
-              <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
-                <LayoutGrid size={14} /> 二级分类
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2.5">
-                <button
-                  onClick={() => {
-                    setSelectedChildId(null);
-                    setPage(1);
-                  }}
-                  className={`rounded-xl px-5 py-2 text-xs font-black ${
-                    selectedTopId && selectedChildId === null
-                      ? "bg-emerald-500 text-white"
-                      : "bg-slate-50 text-slate-500 hover:bg-slate-100"
-                  }`}
-                >
-                  全部子类
-                </button>
-                {selectedChildren.map((item) => {
-                  const active = item.id === selectedChildId;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedChildId(item.id);
-                        setPage(1);
-                      }}
-                      className={`rounded-xl px-5 py-2 text-xs font-black ${
-                        active
-                          ? "bg-emerald-500 text-white"
-                          : "bg-slate-50 text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.name}
-                    </button>
-                  );
-                })}
-                {!selectedChildren.length && (
-                  <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-4 py-2 text-[11px] font-bold text-slate-400 italic">
-                    {selectedTopId ? "该分类下暂无二级分类" : "请先选择一级分类以查看子类"}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* 列表头部工具栏 */}
-        <div className="flex flex-wrap items-center justify-between gap-6 px-2 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-1 rounded-full bg-emerald-500" />
-            <div>
-              <h3 className="text-lg font-black text-slate-900">合集列表</h3>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total {total} Collections</p>
-            </div>
+        <div className="mb-6">
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-1 rounded-full bg-emerald-500" />
+            <h3 className="text-base font-black text-slate-900">合集列表</h3>
           </div>
-
-          <div className="flex flex-wrap items-center gap-4">
-            <div className={TOOLBAR_CARD_CLASS}>
-              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <ListFilter size={14} /> 筛选
-              </div>
-              <select
-                className={FILTER_SELECT_CLASS}
-                value={listFilter}
-                onChange={(e) => {
-                  setPage(1);
-                  setListFilter(e.target.value as "all" | "featured" | "sample" | "public" | "private");
-                }}
-              >
-                <option value="all">全部合集</option>
-                <option value="public">仅公开合集</option>
-                <option value="private">仅私有合集</option>
-                <option value="featured">仅推荐合集</option>
-                <option value="sample">仅样本合集</option>
-              </select>
-            </div>
-
-            <div className={TOOLBAR_CARD_CLASS}>
-              <div className="flex items-center gap-2 px-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <List size={14} /> 每页
-              </div>
-              <select
-                className={FILTER_SELECT_CLASS}
-                value={pageSize}
-                onChange={(e) => {
-                  setPage(1);
-                  setPageSize(Number(e.target.value));
-                }}
-              >
-                <option value={10}>10 条</option>
-                <option value={20}>20 条</option>
-                <option value={50}>50 条</option>
-              </select>
-            </div>
-
-            <button
-              type="button"
-              className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={exportSampleCollections}
-              disabled={exportingSamples}
-            >
-              <Download size={14} />
-              {exportingSamples ? "导出中..." : "导出样本CSV"}
-            </button>
-          </div>
+          <p className="mt-1 pl-3 text-[10px] font-bold uppercase tracking-widest text-emerald-600/60">TOTAL {total} COLLECTIONS</p>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-2 px-2">
-          <div className="rounded-xl bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-600">
+        <div className="mb-6 flex flex-wrap items-center gap-4 px-2">
+          <div className={TOOLBAR_CARD_CLASS}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 whitespace-nowrap">
+              <Layers size={14} /> 一级
+            </div>
+            <select
+              className={`${FILTER_SELECT_CLASS} min-w-[120px]`}
+              value={selectedTopId ?? ""}
+              onChange={(e) => {
+                const nextTopId = e.target.value ? Number(e.target.value) : null;
+                setSelectedTopId(nextTopId);
+                setSelectedChildId(null);
+                setPage(1);
+              }}
+            >
+              <option value="">全部一级分类</option>
+              {topCategories.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={TOOLBAR_CARD_CLASS}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 whitespace-nowrap">
+              <LayoutGrid size={14} /> 二级
+            </div>
+            <select
+              className={`${FILTER_SELECT_CLASS} min-w-[120px]`}
+              value={selectedChildId ?? ""}
+              onChange={(e) => {
+                const nextChildId = e.target.value ? Number(e.target.value) : null;
+                setSelectedChildId(nextChildId);
+                setPage(1);
+              }}
+              disabled={!selectedTopId || !selectedChildren.length}
+            >
+              <option value="">
+                {selectedTopId ? "全部子类" : "请先选择一级"}
+              </option>
+              {selectedChildren.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={TOOLBAR_CARD_CLASS}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 whitespace-nowrap">
+              <ListFilter size={14} /> 筛选
+            </div>
+            <select
+              className={`${FILTER_SELECT_CLASS} min-w-[100px]`}
+              value={listFilter}
+              onChange={(e) => {
+                setPage(1);
+                setListFilter(e.target.value as ListFilterValue);
+              }}
+            >
+              {LIST_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={TOOLBAR_CARD_CLASS}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 whitespace-nowrap">
+              <FileText size={14} /> 来源
+            </div>
+            <select
+              className={`${FILTER_SELECT_CLASS} min-w-[80px]`}
+              value={uploadSourceFilter}
+              onChange={(e) => {
+                setPage(1);
+                setUploadSourceFilter(e.target.value as UploadSourceFilterValue);
+              }}
+            >
+              {UPLOAD_SOURCE_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            className="flex h-9 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-xs font-bold text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              setSelectedTopId(null);
+              setSelectedChildId(null);
+              setListFilter("all");
+              setUploadSourceFilter("all");
+              setPage(1);
+            }}
+            disabled={!hasActiveFilters}
+          >
+            重置筛选
+          </button>
+        </div>
+
+        <div className="mb-6 flex flex-wrap items-center gap-4 px-2">
+          <div className={TOOLBAR_CARD_CLASS}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 whitespace-nowrap">
+              <List size={14} /> 每页
+            </div>
+            <select
+              className={`${FILTER_SELECT_CLASS} min-w-[60px]`}
+              value={pageSize}
+              onChange={(e) => {
+                setPage(1);
+                setPageSize(Number(e.target.value));
+              }}
+            >
+              <option value={10}>10 条</option>
+              <option value={20}>20 条</option>
+              <option value={50}>50 条</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            className="flex h-9 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={exportSampleCollections}
+            disabled={exportingSamples}
+          >
+            <Download size={14} />
+            {exportingSamples ? "导出中..." : "导出样本CSV"}
+          </button>
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3 px-2">
+          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-600">
             已选 {selectedCollectionIds.length} 条
           </div>
-          <select
-            className="h-8 min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
-            value={batchTargetIPId}
-            onChange={(e) => setBatchTargetIPId(Number(e.target.value))}
-            disabled={!selectedCollectionIds.length || batchIPSaving}
-          >
-            <option value={0}>选择目标IP</option>
-            {ips.map((ip) => (
-              <option key={ip.id} value={ip.id}>
-                {ip.name}
-              </option>
-            ))}
-          </select>
           <button
             type="button"
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!selectedCollectionIds.length || batchIPSaving || batchTargetIPId <= 0}
-            onClick={() => batchAssignIP(batchTargetIPId)}
+            className="rounded-full bg-indigo-50 px-3 py-1.5 text-[11px] font-bold text-indigo-600 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchShowcaseSaving}
+            onClick={() => batchUpdateShowcaseFlag(true)}
           >
-            {batchIPSaving ? "处理中..." : "批量设置IP"}
+            {batchShowcaseSaving ? "处理中..." : "批量设为赏析"}
           </button>
           <button
             type="button"
-            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!selectedCollectionIds.length || batchIPSaving}
-            onClick={() => batchAssignIP(0)}
+            className="rounded-full bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selectedCollectionIds.length || batchShowcaseSaving}
+            onClick={() => batchUpdateShowcaseFlag(false)}
           >
-            批量清空IP
-          </button>
-          <button
-            type="button"
-            className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!selectedCollectionIds.length || batchSampleSaving}
-            onClick={() => batchUpdateSampleFlag(true)}
-          >
-            {batchSampleSaving ? "处理中..." : "批量标记样本"}
-          </button>
-          <button
-            type="button"
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!selectedCollectionIds.length || batchSampleSaving}
-            onClick={() => batchUpdateSampleFlag(false)}
-          >
-            批量取消样本
+            取消赏析模式
           </button>
           <select
-            className="h-8 min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
+            className="h-8 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-600 outline-none focus:border-emerald-400 disabled:opacity-50"
             value={batchTargetVisibility}
             onChange={(e) => setBatchTargetVisibility(e.target.value as "public" | "private")}
             disabled={!selectedCollectionIds.length || batchVisibilitySaving}
           >
-            <option value="private">可见性：下架（private）</option>
-            <option value="public">可见性：上架（public）</option>
+            <option value="private">可见性：未上架</option>
+            <option value="public">可见性：上架中</option>
           </select>
           <button
             type="button"
-            className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full bg-rose-50 px-3 py-1.5 text-[11px] font-bold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!selectedCollectionIds.length || batchVisibilitySaving}
             onClick={() => batchUpdateVisibility(batchTargetVisibility)}
           >
@@ -1031,7 +1070,7 @@ export default function Page() {
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">合集信息</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">封面图</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">分类/主题/IP</th>
-                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">标签属性</th>
+                <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">属性</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 text-center whitespace-nowrap">统计</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">状态</th>
                 <th className="sticky top-0 z-20 bg-white px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">创建时间</th>
@@ -1039,8 +1078,11 @@ export default function Page() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {collections.map((item) => (
-                <tr key={item.id}>
+              {collections.map((item) => {
+                const statusMeta = getStatusMeta(item.status);
+                const visibilityMeta = getVisibilityMeta(item.visibility);
+                return (
+                  <tr key={item.id}>
                   <td className="px-4 py-6 text-center">
                     <input
                       type="checkbox"
@@ -1057,7 +1099,7 @@ export default function Page() {
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="relative h-16 w-16 overflow-hidden rounded-2xl border-2 border-white bg-slate-100 shadow-sm ring-1 ring-slate-100">
+                    <div className="relative h-14 w-14 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50">
                       {resolveCoverUrl(item) ? (
                         <CoverThumb
                           key={`${item.id}-${item.cover_url || ""}-${item.qiniu_prefix || ""}`}
@@ -1073,11 +1115,11 @@ export default function Page() {
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
                         <Layers size={12} className="text-slate-300" />
-                        <span className="text-[11px] font-black text-slate-600">
-                          {item.category_id ? categoryMap.get(item.category_id) : "未分类"}
+                        <span className="text-[11px] font-bold text-slate-500">
+                          {formatCategoryPathLabel(item.category_id, categoryMap)}
                         </span>
                       </div>
                       {item.path_mismatch ? (
@@ -1086,104 +1128,126 @@ export default function Page() {
                           分类与实际存储路径不一致
                         </div>
                       ) : null}
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <TagIcon size={12} className="text-slate-200" />
-                        <span className="text-[10px] font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <TagIcon size={12} className="text-slate-300" />
+                        <span className="text-[11px] font-bold text-slate-500">
                           {item.theme_id ? themeMap.get(item.theme_id) : "无主题"}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <User size={12} className="text-slate-200" />
-                        <span className="text-[10px] font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <User size={12} className="text-slate-300" />
+                        <span className="text-[11px] font-bold text-slate-500">
                           {item.ip_id ? ipMap.get(item.ip_id) : "无IP"}
                         </span>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="flex flex-wrap gap-1.5 max-w-[180px]">
-                      {item.is_featured && (
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-600 ring-1 ring-amber-100">
-                          <Star size={10} className="fill-amber-500" /> 推荐
+                    <div className="max-w-[180px] space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ${
+                            item.source === "ugc_upload"
+                              ? "bg-blue-50 text-blue-600"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {item.source === "ugc_upload" ? "用户上传" : "运营上传"}
                         </span>
-                      )}
-                      {item.is_pinned && (
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-600 ring-1 ring-emerald-100">
-                          <ArrowUpCircle size={10} /> 置顶
-                        </span>
-                      )}
-                      {item.is_sample && (
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-600 ring-1 ring-violet-100">
-                          <TagIcon size={10} /> 样本
-                        </span>
-                      )}
-                      {item.tags?.slice(0, 3).map((tag) => (
-                        <span key={tag.id} className="rounded-lg bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-100">
-                          {tag.name}
-                        </span>
-                      ))}
-                      {item.tags && item.tags.length > 3 && (
-                        <span className="text-[9px] font-black text-slate-300">+{item.tags.length - 3}</span>
-                      )}
+                        {item.is_featured && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-600">
+                            <Star size={10} className="fill-amber-500" /> 推荐
+                          </span>
+                        )}
+                        {item.is_showcase && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-black text-indigo-600">
+                            <Eye size={10} /> 赏析
+                          </span>
+                        )}
+                        {item.is_sample && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-black text-violet-600">
+                            <TagIcon size={10} /> 样本
+                          </span>
+                        )}
+                        {item.is_pinned && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-600">
+                            <ArrowUpCircle size={10} /> 置顶
+                          </span>
+                        )}
+                        {!item.is_featured && !item.is_showcase && !item.is_sample && !item.is_pinned ? (
+                          <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-black text-slate-500">
+                            普通
+                          </span>
+                        ) : null}
+                      </div>
+                      <div
+                        className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-black text-slate-500"
+                        title={(item.tags || []).map((tag) => tag.name).join("、") || "无标签"}
+                      >
+                        标签 {item.tags?.length || 0}
+                      </div>
                     </div>
                   </td>
                   <td className="px-6 py-6 text-center">
-                    <div className="inline-flex flex-col items-center justify-center rounded-2xl bg-slate-50 px-4 py-2">
-                      <div className="text-sm font-black text-slate-900">{item.file_count ?? 0}</div>
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="text-base font-black text-slate-900">{item.file_count ?? 0}</div>
                       <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Files</div>
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className={`h-1.5 w-1.5 rounded-full ${item.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                        <span className={`text-[11px] font-black uppercase ${item.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
-                          {item.status}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className={`h-1.5 w-1.5 rounded-full ${statusMeta.dotClass}`} />
+                        <span className={`text-[11px] font-bold ${statusMeta.textClass}`}>
+                          {statusMeta.label}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <Eye size={12} />
-                        <span className="text-[10px] font-bold uppercase">{item.visibility}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Eye size={12} className={visibilityMeta.textClass} />
+                        <span className={`text-[11px] font-bold ${visibilityMeta.textClass}`}>
+                          {visibilityMeta.label}
+                        </span>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <Clock size={12} />
+                    <div className="flex items-start gap-1.5 text-slate-400">
+                      <Clock size={12} className="mt-0.5" />
                       <div className="flex flex-col">
                         <span className="text-[11px] font-bold text-slate-600">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</span>
-                        <span className="text-[9px] font-medium opacity-60">{item.created_at ? new Date(item.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ""}</span>
+                        <span className="text-[10px] font-medium text-slate-400">{item.created_at ? new Date(item.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ""}</span>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-1">
                       <button
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm hover:border-emerald-100 hover:bg-emerald-50 hover:text-emerald-600"
+                        className="p-2 text-slate-400 transition-colors hover:text-emerald-600"
                         onClick={() => openCollectionEdit(item)}
                         title="编辑合集"
                       >
                         <Edit3 size={16} />
                       </button>
                       <Link
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-600 shadow-sm hover:border-blue-100 hover:bg-blue-50 hover:text-blue-600"
+                        className="p-2 text-slate-400 transition-colors hover:text-blue-600"
                         href={`/admin/archive/collections/${item.id}/emojis`}
                         title="编辑表情"
                       >
                         <ImageIcon size={16} />
                       </Link>
                       <button
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-100 bg-white text-rose-400 shadow-sm hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                        className="p-2 text-slate-400 transition-colors hover:text-rose-600 disabled:opacity-40"
                         onClick={() => hardDeleteCollection(item)}
                         disabled={deletingCollectionId === item.id}
                         title="删除合集"
                       >
-                        {deletingCollectionId === item.id ? <RefreshCw size={16} /> : <Trash2 size={16} />}
+                        {deletingCollectionId === item.id ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
                       </button>
                     </div>
                   </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
               {!collections.length && !loading && (
                 <tr>
                   <td colSpan={10} className="px-6 py-20 text-center">
@@ -1424,7 +1488,7 @@ export default function Page() {
               )}
             </div>
             <div className="md:col-span-2">
-              <div className="text-xs text-slate-400">推荐 / 置顶 / 样本</div>
+              <div className="text-xs text-slate-400">推荐 / 置顶 / 样本 / 赏析</div>
               <div className="mt-2 flex flex-wrap gap-3">
                 <label className="flex items-center gap-2 text-xs text-slate-600">
                   <input
@@ -1453,29 +1517,61 @@ export default function Page() {
                   />
                   样本
                 </label>
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={collectionShowcase}
+                    onChange={(e) => setCollectionShowcase(e.target.checked)}
+                  />
+                  赏析（仅赏析页展示，前台禁下载）
+                </label>
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <div className="text-xs text-slate-400">版权信息（前台醒目标注）</div>
+              <div className="mt-2 grid gap-3 md:grid-cols-3">
+                <input
+                  className="w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm text-slate-700 outline-none"
+                  value={collectionCopyrightAuthor}
+                  onChange={(e) => setCollectionCopyrightAuthor(e.target.value)}
+                  placeholder="图片作者：例如 Downvote"
+                />
+                <input
+                  className="w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm text-slate-700 outline-none"
+                  value={collectionCopyrightWork}
+                  onChange={(e) => setCollectionCopyrightWork(e.target.value)}
+                  placeholder="原作：例如《孤独摇滚！》"
+                />
+                <input
+                  className="w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm text-slate-700 outline-none"
+                  value={collectionCopyrightLink}
+                  onChange={(e) => setCollectionCopyrightLink(e.target.value)}
+                  placeholder="来源链接 / 作者主页"
+                />
               </div>
             </div>
             <div>
               <div className="text-xs text-slate-400">状态</div>
               <select
-                className="mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm text-slate-700 outline-none"
+                className={`mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm font-semibold outline-none ${getStatusMeta(collectionStatus).textClass}`}
                 value={collectionStatus}
                 onChange={(e) => setCollectionStatus(e.target.value)}
               >
-                <option value="active">active</option>
-                <option value="pending">pending</option>
-                <option value="disabled">disabled</option>
+                <option value="active">正常</option>
+                <option value="pending">待审核</option>
+                <option value="disabled">不可用</option>
               </select>
             </div>
             <div>
               <div className="text-xs text-slate-400">可见性</div>
               <select
-                className="mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm text-slate-700 outline-none"
+                className={`mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-2 text-sm font-semibold outline-none ${getVisibilityMeta(collectionVisibility).textClass}`}
                 value={collectionVisibility}
                 onChange={(e) => setCollectionVisibility(e.target.value)}
               >
-                <option value="public">public</option>
-                <option value="private">private</option>
+                <option value="public">上架中</option>
+                <option value="private">未上架</option>
               </select>
             </div>
             <div className="md:col-span-2">
@@ -1500,7 +1596,7 @@ export default function Page() {
                   ))}
                 </select>
               </div>
-              <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
                 {groupedCollectionTags.map((section) => (
                   <div key={`${section.id}-${section.name}`} className="mb-4 last:mb-0">
                     <div className="mb-2 text-xs font-semibold text-slate-500">
@@ -1559,6 +1655,109 @@ type TreeItem = {
   depth: number;
 };
 
+function getStatusMeta(status?: string): StatusMeta {
+  const value = String(status || "").trim().toLowerCase();
+  switch (value) {
+    case "active":
+      return {
+        label: "正常",
+        dotClass: "bg-emerald-500",
+        textClass: "text-emerald-700",
+        badgeClass: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100",
+      };
+    case "pending":
+    case "reviewing":
+      return {
+        label: "待审核",
+        dotClass: "bg-amber-500",
+        textClass: "text-amber-700",
+        badgeClass: "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
+      };
+    case "approved":
+      return {
+        label: "已通过",
+        dotClass: "bg-cyan-500",
+        textClass: "text-cyan-700",
+        badgeClass: "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100",
+      };
+    case "rejected":
+      return {
+        label: "已驳回",
+        dotClass: "bg-rose-500",
+        textClass: "text-rose-700",
+        badgeClass: "bg-rose-50 text-rose-700 ring-1 ring-rose-100",
+      };
+    case "disabled":
+      return {
+        label: "不可用",
+        dotClass: "bg-slate-500",
+        textClass: "text-slate-700",
+        badgeClass: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+      };
+    case "draft":
+      return {
+        label: "草稿",
+        dotClass: "bg-sky-500",
+        textClass: "text-sky-700",
+        badgeClass: "bg-sky-50 text-sky-700 ring-1 ring-sky-100",
+      };
+    default:
+      return {
+        label: "未知",
+        dotClass: "bg-slate-300",
+        textClass: "text-slate-500",
+        badgeClass: "bg-slate-50 text-slate-500 ring-1 ring-slate-100",
+      };
+  }
+}
+
+function getVisibilityMeta(visibility?: string): VisibilityMeta {
+  const value = String(visibility || "").trim().toLowerCase();
+  switch (value) {
+    case "public":
+    case "online":
+      return {
+        label: "上架中",
+        textClass: "text-emerald-700",
+        badgeClass: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100",
+      };
+    case "private":
+    case "offline":
+      return {
+        label: "未上架",
+        textClass: "text-slate-700",
+        badgeClass: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+      };
+    default:
+      return {
+        label: "未知",
+        textClass: "text-slate-500",
+        badgeClass: "bg-slate-50 text-slate-500 ring-1 ring-slate-100",
+      };
+  }
+}
+
+function formatCategoryPathLabel(categoryID: number | null | undefined, categoryMap: Map<number, Category>) {
+  if (!categoryID) return "未分类";
+  const current = categoryMap.get(categoryID);
+  if (!current) return "未分类";
+
+  const names: string[] = [];
+  let cursor: Category | undefined = current;
+  let guard = 0;
+  while (cursor && guard < 8) {
+    names.unshift(cursor.name);
+    if (!cursor.parent_id) break;
+    cursor = categoryMap.get(Number(cursor.parent_id));
+    guard += 1;
+  }
+
+  if (names.length >= 2) {
+    return `${names[0]} / ${names[1]}`;
+  }
+  return `${names[0]} / 未设二级`;
+}
+
 function buildTree(categories: Category[]): TreeItem[] {
   const map = new Map<number, Category[]>();
   const roots: Category[] = [];
@@ -1601,6 +1800,21 @@ function buildTree(categories: Category[]): TreeItem[] {
 function isImageFile(value: string) {
   const clean = (value || "").split("?")[0].split("#")[0].toLowerCase();
   return /\.(jpe?g|png|gif|webp)$/.test(clean);
+}
+
+function extractStorageKeyFromURL(raw: string) {
+  const val = (raw || "").trim();
+  if (!val.startsWith("http://") && !val.startsWith("https://")) return "";
+  try {
+    const parsed = new URL(val);
+    const pathname = parsed.pathname || "";
+    if (!pathname) return "";
+    const decoded = decodeURIComponent(pathname).replace(/^\/+/, "").trim();
+    if (!decoded || !isImageFile(decoded)) return "";
+    return decoded;
+  } catch {
+    return "";
+  }
 }
 
 function buildStaticPreview(url: string) {

@@ -1,7 +1,17 @@
 "use client";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5050";
+const resolveAPIBase = () => {
+  const raw = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
+  if (!raw || /^\/api\/?$/i.test(raw)) {
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return window.location.origin;
+    }
+    return "";
+  }
+  return raw.replace(/\/+$/, "");
+};
+
+const API_BASE = resolveAPIBase();
 
 const ACCESS_KEY = "admin_token";
 const REFRESH_KEY = "admin_refresh";
@@ -99,19 +109,39 @@ export async function refreshAccessToken() {
     return false;
   }
 
-  const res = await fetch(`${API_BASE}/api/auth/refresh`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch {
+    // 网络异常（后端不可达/CORS/离线）时，不抛错导致页面崩溃
+    return false;
+  }
 
   if (!res.ok) {
     clearTokens();
     return false;
   }
 
-  const data = await res.json();
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+  try {
+    data = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+  } catch {
+    clearTokens();
+    return false;
+  }
   if (!data?.access_token || !data?.refresh_token) {
     clearTokens();
     return false;
@@ -129,12 +159,16 @@ export async function refreshAccessToken() {
 
 export async function logout() {
   const refreshToken = getRefreshToken();
-  await fetch(`${API_BASE}/api/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
-  });
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+    });
+  } catch {
+    // ignore network error on logout
+  }
   clearTokens();
 }
 
